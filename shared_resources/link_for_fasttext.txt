@@ -1,0 +1,9 @@
+
+Link for fasttext_32: https://drive.google.com/file/d/1TkZuag5-wB6WDpfpMjIMYToaEP3YvfLf/view?usp=sharing
+
+After unzipping the structure of your direcotry should look something like that (we ignore other subfolders and files)
+|_shared_resources
+  |_pretrained_fasttext
+    |_embed_if_32.mdl
+    |_embed_if_32.mdl.wv.vectors_ngrams.npy
+
