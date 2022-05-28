@@ -1,0 +1,14 @@
+gensim
+jupyter
+libcst
+matplotlib
+nltk
+notebook
+numpy
+pandas
+scikit-learn~=1.1.1
+scipy
+seaborn
+tokenizers
+torch~=1.11
+tqdm
