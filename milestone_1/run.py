@@ -9,6 +9,7 @@ import zipfile
 # external
 import gensim
 import libcst as cst
+from libcst.metadata.position_provider import PositionProvider
 import matplotlib.pyplot as plt
 import nltk
 import numpy as np
@@ -22,6 +23,16 @@ from tokenizers.processors import BertProcessing
 # local
 import config
 
+# debugging functions
+
+def model_predict(input):
+    """
+    interface dummy
+    """
+    line_numbers = [s['line_raise'] for s in input]
+    results = np.zeros_like(line_numbers)
+    return [{k: v for (k, v) in zip(line_numbers, results)}]
+
 
 def r(node):
     if type(node) == list:
@@ -32,6 +43,12 @@ def r(node):
 
 def p(node):
     print(r(node))
+
+q = 0
+def pird(if_raise_dict):
+    global q
+    print(q, rt(if_raise_dict['if'], if_raise_dict['raise']))
+    q += 1
 
 
 def rt(cond, statement):
@@ -44,8 +61,23 @@ def get_raise(body):
             return stmt
 
 
+class FindIf(cst.CSTVisitor):
+    METADATA_DEPENDENCIES = (PositionProvider,)
+
+    def __init__(self):
+        super().__init__()
+        self.ifs = []
+        self.current_line = 1
+
+    def visit_If(self, node: cst.If):
+        # p(node)
+        line = self.get_metadata(PositionProvider, node).start.line
+        self.ifs.append(node)
+        self.current_line = line
+
+
 class FindRaise(cst.CSTVisitor):
-    METADATA_DEPENDENCIES = (cst.PositionProvider,)
+    METADATA_DEPENDENCIES = (PositionProvider,)
 
     def __init__(self):
         super().__init__()
@@ -53,23 +85,11 @@ class FindRaise(cst.CSTVisitor):
         self.lines = []
 
     def visit_Raise(self, node: cst.Raise):
+        # p(node)
         self.raises.append(node)
-        line = self.get_metadata(cst.PositionProvider, node).start.line
+        a = 5
+        line = self.get_metadata(PositionProvider, node).start.line
         self.lines.append(line)
-
-
-class FindIf(cst.CSTVisitor):
-    METADATA_DEPENDENCIES = (cst.PositionProvider,)
-
-    def __init__(self):
-        super().__init__()
-        self.ifs = []
-        self.if_lines = []
-
-    def visit_If(self, node: cst.If):
-        line = self.get_metadata(cst.PositionProvider, node).start.line
-        self.ifs.append(node)
-        self.if_lines.append(line)
 
 
 """ Unused - elif is an if + else """
@@ -116,6 +136,7 @@ def get_raise_snippets(if_finder, else_branch=False):
     if_stack = []
 
     raise_finder = FindRaise()  # init only once
+    # wrapper = cst.MetadataWrapper(raise_finder)
 
     for i, if_i in enumerate(if_finder.ifs):
         # true-block
@@ -127,6 +148,12 @@ def get_raise_snippets(if_finder, else_branch=False):
         else:
             body = if_i.body
 
+        # hope it won't appear
+        # body.visit(raise_finder)
+
+        # solve it
+        body_ = body
+        body = cst.MetadataWrapper(cst.parse_module(r(if_i)))
         body.visit(raise_finder)
 
         if len(raise_finder.raises) > 0:
@@ -138,7 +165,14 @@ def get_raise_snippets(if_finder, else_branch=False):
             if True:
                 test = cst.Not(if_i.test) if else_branch else if_i.test
                 # snippet = rt(test, raise_finder.raises[0])
-                snippets.append((test, raise_finder.raises[0]))
+                snippets.append(
+                    {
+                        "if": test,
+                        "raise": raise_finder.raises[0],
+                        "line_if": if_finder.current_line,
+                        "line_raise": raise_finder.lines[0]
+                    })
+                # snippets.append(test, raise_finder.raises[0], if_finder.lines[i])
 
             # elif cnt > 1:
             #     pass
@@ -181,7 +215,7 @@ if __name__ == '__main__':
     # look for if-raise
     snippets = []
     for i, segment in enumerate(segments[70:90]):  # [74:75] #
-        tree_if = cst.parse_module(segment)
+        tree_if = cst.MetadataWrapper(cst.parse_module(segment))
 
         if_finder = FindIf()
         tree_if.visit(if_finder)
@@ -216,46 +250,33 @@ if __name__ == '__main__':
 
         print(list(np.array(ts) - ts[0]))
 
+    if False:
+        """ train """
+        from datasets import load_dataset  # debugging only
 
+        from transformers import AutoModelForSequenceClassification, TrainingArguments, Trainer
 
+        model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased", num_labels=2)
 
+        training_args = TrainingArguments(
+            output_dir="./results",
+            learning_rate=2e-5,
+            # per_device_train_batch_size=16,
+            # per_device_eval_batch_size=16,
+            num_train_epochs=1,
+            weight_decay=0.01,
+        )
 
+        trainer = Trainer(
+            model=model,
+            args=training_args,
+            train_dataset=tokenized_imdb["train"],
+            # eval_dataset=tokenized_imdb["test"],
+            tokenizer=tokenizer,
+            # data_collator=data_collator,
+        )
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        trainer.train()
 
     """
     Where I finished:

@@ -22,7 +22,8 @@ def load_model(source):
     """
     TODO: Implement your code to load the serialized model.
     """
-    raise Exception("Method not yet implemented.")
+    # raise Exception("Method not yet implemented.")
+    return None
 
 
 def write_predictions(destination, predictions):
