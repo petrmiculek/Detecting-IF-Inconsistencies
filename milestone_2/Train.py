@@ -10,20 +10,21 @@ parser.add_argument(
 
 
 def train_model(model, source):
-	"""
-	TODO: Implement your method for training the model here.
-	"""
-	raise Exception("Method not yet implemented.")
+    """
+    TODO: Implement your method for training the model here.
+    """
+    raise Exception("Method not yet implemented.")
+
 
 def save_model(model, destination):
-	"""
-	TODO: Implement your method for saving the training the model here.
-	"""
-	raise Exception("Method not yet implemented.")
-	
+    """
+    TODO: Implement your method for saving the training the model here.
+    """
+    raise Exception("Method not yet implemented.")
+
 
 if __name__ == "__main__":
-	args = parser.parse_args()
-	model = train_model(args.source)
+    args = parser.parse_args()
+    model = train_model(model=None, source=args.source)
 
-	save_model(model, args.destination)
+    save_model(model, args.destination)
