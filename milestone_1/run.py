@@ -148,31 +148,28 @@ def get_raise_snippets(if_finder, else_branch=False):
         else:
             body = if_i.body
 
-        # hope it won't appear
-        # body.visit(raise_finder)
-
-        # solve it
+        """
+        Problem:
+        
+        If I use .body or .orelse, I cannot wrap it in MetadataWrapper.
+        
+        If I get the whole if-code-block again, then I cannot distinguish between a raise in true-block and a raise in false-block.
+        """
         body_ = body
         body = cst.MetadataWrapper(cst.parse_module(r(if_i)))
         body.visit(raise_finder)
 
         if len(raise_finder.raises) > 0:
             raises_all.append(raise_finder.raises)
-            # raise_if_idx.append(i)
-            # code = cst.Module([body]).code
-            # cnt = code.count('raise')
-            # if cnt == 1:
-            if True:
-                test = cst.Not(if_i.test) if else_branch else if_i.test
-                # snippet = rt(test, raise_finder.raises[0])
-                snippets.append(
-                    {
-                        "if": test,
-                        "raise": raise_finder.raises[0],
-                        "line_if": if_finder.current_line,
-                        "line_raise": raise_finder.lines[0]
-                    })
-                # snippets.append(test, raise_finder.raises[0], if_finder.lines[i])
+            test = cst.Not(if_i.test) if else_branch else if_i.test
+            snippets.append(
+                {
+                    "if": test,
+                    "raise": raise_finder.raises[0],
+                    "line_if": if_finder.current_line,
+                    "line_raise": raise_finder.lines[0]
+                })
+            # snippets.append(test, raise_finder.raises[0], if_finder.lines[i])
 
             # elif cnt > 1:
             #     pass
