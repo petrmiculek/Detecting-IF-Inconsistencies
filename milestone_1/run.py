@@ -146,6 +146,7 @@ class FindRaise(cst.CSTVisitor):
             except:
                 context = None
             line_if = self.get_metadata(PositionProvider, new_node).start.line
+
             self.samples.append({'line_raise': line,
                                  'line_if': line_if,
                                  'raise': node,
@@ -249,39 +250,61 @@ def load_tokenizer():
 
 segments_idx = {
     "simple_if": 1,
-
+    "simple_else": 5,
+    "if_elif_else_raise": 10,
+    "if_if_raise": 11,
+    "raise_outside_if": 2,
+    "if_raise_else_if_raise": 8,
+    "if_try_raise_except_raise": 28,
+    "same1": 59,
+    "same2": 68,
+    "for_else_raise": 172,
+    "except_if_raise_else_raise": 208,
 }
 
 
 def inverse_operator(operator):
-    if type(operator) == cst.Equal:
-        return cst.NotEqual
-    elif type(operator) == cst.NotEqual:
-        return cst.Equal
-    elif type(operator) == cst.GreaterThan:
-        return cst.LessThanEqual
-    elif type(operator) == cst.LessThan:
-        return cst.GreaterThanEqual
-    elif type(operator) == cst.GreaterThanEqual:
-        return cst.LessThan
-    elif type(operator) == cst.LessThanEqual:
-        return cst.GreaterThan
-    elif type(operator) == cst.Is:
-        return cst.IsNot
-    elif type(operator) == cst.IsNot:
-        return cst.Is
-    elif type(operator) == cst.In:
-        return cst.NotIn
-    elif type(operator) == cst.NotIn:
-        return cst.In
+    inverse_mapping = {
+        cst.Equal: cst.NotEqual,
+        cst.NotEqual: cst.Equal,
+        cst.GreaterThan: cst.LessThanEqual,
+        cst.LessThanEqual: cst.GreaterThan,
+        cst.GreaterThanEqual: cst.LessThan,
+        cst.LessThan: cst.GreaterThanEqual,
+        cst.Is: cst.IsNot,
+        cst.IsNot: cst.Is,
+        cst.In: cst.NotIn,
+        cst.NotIn: cst.In,
+
+    }
+    op_type = type(operator)
+    if op_type in inverse_mapping:
+        return inverse_mapping[op_type]
     else:
         raise Exception(f"Unknown operator: {operator}")
 
 
+def rebuild_cond(cond, parentheses=False):
+    # todo test for all possible types: BooleanOperation, BinaryOperation (5 + 5)
+    kw = {k: cond.__getattribute__(k) for k in cond.__slots__}
+    if parentheses:
+        # wrap in parentheses
+        kw['lpar'] = [cst.LeftParen(cst.SimpleWhitespace(value=''))]
+        kw['rpar'] = [cst.RightParen(cst.SimpleWhitespace(value=''))]
+    else:
+        # remove parentheses
+        kw['lpar'] = []
+        kw['rpar'] = []
+    rebuilt = type(cond)(**kw)
+    return rebuilt
+
+
 def negate_cond(cond):
     try:
+
         if type(cond) == cst.UnaryOperation and type(cond.operator) == cst.Not:
-            return cond.expression
+            # extract `x` from `not (x)`
+            return rebuild_cond(cond.expression, parentheses=False)
         elif type(cond) == cst.Comparison:
             inv_op = inverse_operator(cond.comparisons[0].operator)
             tgt = cst.ComparisonTarget(operator=inv_op(), comparator=cond.comparisons[0].comparator)
@@ -291,12 +314,18 @@ def negate_cond(cond):
                 comparisons=[
                     tgt
                 ]
+                # paretheses removed on purpose, no semantic change
             )
         # elif type(cond) == cst.And:
         # todo add DeMorgan's laws
-
-        else:
+        elif type(cond) in {cst.Attribute, cst.Call}:
+            # don't add parentheses
             return cst.UnaryOperation(operator=cst.Not(), expression=cond)
+        else:
+            # add parentheses
+            parenthesized = rebuild_cond(cond, parentheses=True)
+
+            return cst.UnaryOperation(operator=cst.Not(), expression=parenthesized)
     except Exception as e:
         print(e)
         return None
@@ -313,8 +342,8 @@ class LogTime:
         self.messages.append(msg)
 
     def print(self):
-        print('='*10, '\n'
-              ' i| time| message')
+        print('=' * 10, '\n'
+                        ' i| time| message')
         for i, (t, msg) in enumerate(zip(self.times, self.messages)):
             print(f'{i:02d}| {(t - self.times[0]):2.2f}| {msg}')
 
@@ -332,7 +361,10 @@ if __name__ == '__main__':
     # print(sum(map(g, segments)))
 
     samples = []
-    for i, segment in enumerate(segments[45:47]):  # [74:75] # 208:209
+    start = 0
+    idx = list((segments_idx.values()))
+    for name, i in segments_idx.items():  # [start: start + 2]  # [74:75] # 208:209
+        segment = segments[i]
         tree = cst.MetadataWrapper(cst.parse_module(segment))
         raise_finder = FindRaise()  # init only once
         tree.visit(raise_finder)
@@ -341,34 +373,28 @@ if __name__ == '__main__':
             context_end_line = s['line_if'] - 1
             pre_context = "\n".join(segment.split('\n')[:context_end_line])
             s['context'] = pre_context
+            s['segment'] = start + i
 
         samples.extend(raise_finder.samples)
 
     ts.log('samples extracted')
 
     for s in samples:
-        not_cond = negate_cond(s['cond'])
         print("=" * 4)
-        p(s['cond'])
-        p(not_cond)
+        # print(s['context'])
+        if s['else']:
+            not_cond = negate_cond(s['cond'])
+            p(not_cond)
+        else:
+            without_parentheses = rebuild_cond(s['cond'], parentheses=False)
+            p(without_parentheses)
+            # p(s['cond'])
+
+        p(s['raise'])
 
     ts.log('negated')
-    """
-    if_i = None
-    # look for if-raise
-    snippets = []
-    for i, segment in enumerate(segments[8:9]):  # [74:75] # 208:209
-        tree_if = cst.MetadataWrapper(cst.parse_module(segment))
-
-        if_finder = FindIf()
-        tree_if.visit(if_finder)
-        snippets += get_raise_snippets(if_finder)
-
-    ts.append(time.perf_counter())
-    """
 
     # Exploration:
-
     # max_char_len = max(map(len, snippets))
     # print(f'Max observed input len = {max_char_len} chars.')
 
@@ -399,13 +425,7 @@ if __name__ == '__main__':
     """
     Where I finished:
         .    
-    Now:    
-        How come I don't get nested ifs?
-        - even when only looking for a raise
-          inside the if-body we could still find
-          one that's deeper down
-        - todo: run visitor on nested ifs example
-        
+    Now:
         
         if.orelse can be If ( = elif) or Else ( = else)
         
@@ -417,13 +437,12 @@ if __name__ == '__main__':
         - save embeddings 
             DONE
         - run for whole dataset
-        - if a condition is not-X, then negated version must be X (currently not-not-X)
+        - dodělat elify
     
-    
-    - nech si odděleně ještě i teď textovou podobu - budeš nad tím dělat úpravy pro inkonzistentní vstupy
-    - dodělat elify
-    - kolik nechat z okolního kontextu (předchozí unrelated příkazy mohou a nemusí být důležité)
-    - podmínka může pracovat s proměnnými, které jsou mimo scope (dodatečně dodat informaci o nich?)
-    - nechat pouze část podmínky?
+        - Conditions:
+            #DONE#
+            for a simple parenthesized condition you can just remove the brackets
+            otherwise it could be a sign of non-manipulated input sample
+            
 - 
     """
