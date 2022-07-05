@@ -1,67 +1,23 @@
 # stdlib
-import time
-from copy import deepcopy as dc
 import os
-import json
-from typing import List, Tuple, Dict, Optional
-import zipfile
+import sys
+
+sys.path.append(os.path.join(os.getcwd(), os.pardir))
 
 # external
-import gensim
 import libcst as cst
-from libcst.metadata.position_provider import PositionProvider
-from libcst.metadata.parent_node_provider import ParentNodeProvider
-import matplotlib.pyplot as plt
-import nltk
-import numpy as np
 import pandas as pd
-import seaborn as sns
-import tokenizers
-
-from tokenizers.implementations import ByteLevelBPETokenizer
-from tokenizers.processors import BertProcessing
 
 # local
-import config
+from src import config
+from src.extract import extract_raises, load_segments
+from src.preprocess import rebuild_cond, negate_cond, load_tokenizer
+from src.util import LogTime, r, p, repr_cond_raise
 
 
 # debugging functions
 
-def model_predict(input):
-    """
-    interface dummy
-    """
-    line_numbers = [s['line_raise'] for s in input]
-    results = np.zeros_like(line_numbers)
-    return [{k: v for (k, v) in zip(line_numbers, results)}]
-
-
-def r(node):
-    if type(node) == list:
-        return "".join(list(map(r, node)))
-    else:
-        return cst.Module([node]).code
-
-
-def p(node):
-    print(r(node))
-
-
-q = 0
-
-
-def pird(if_raise_dict, init=None):
-    global q
-    print(f"{q}: {rt(if_raise_dict['cond'], if_raise_dict['raise'])}")
-    q += 1
-
-
-def rt(cond, statement):
-    return "if " + r(cond) + ":\n\t" + r(statement)
-
-
-def n():
-    global segments
+def print_all_segments(segments):
     i = 0
     while True:
         print(f'=========='
@@ -71,183 +27,7 @@ def n():
         input('')
 
 
-def numbered_lines(string):
-    for i, line in enumerate(string.split('\n')):
-        print(f'{i:02d}: {line}')
-
-
-def get_raise(body):
-    for stmt in body:
-        if type(stmt) == cst.Raise:
-            return stmt
-
-
-class FindIf(cst.CSTVisitor):
-    METADATA_DEPENDENCIES = (PositionProvider, ParentNodeProvider)
-
-    def __init__(self):
-        super().__init__()
-        self.ifs = []
-        self.current_line = 1
-        self.lines = [None]
-
-    def visit_If(self, node: cst.If):
-        # p(node)
-        line = self.get_metadata(PositionProvider, node).start.line
-        self.ifs.append(node)
-        self.current_line = line
-        self.lines.append(line)
-
-    def leave_If(self, original_node) -> None:
-        self.lines.pop()
-
-
-class FindRaise(cst.CSTVisitor):
-    METADATA_DEPENDENCIES = (PositionProvider, ParentNodeProvider)
-
-    def __init__(self):
-        super().__init__()
-        self.raises = []
-        self.lines = []
-        self.samples = []
-
-    def visit_Raise(self, node: cst.Raise):
-        self.raises.append(node)
-        # a = 5
-        line = self.get_metadata(PositionProvider, node).start.line
-        new_node = node
-        else_branch = False
-        try:
-            while True:
-                new_node = self.get_metadata(ParentNodeProvider, new_node)
-                if type(new_node) == cst.Else:
-                    else_branch = True
-                    new_node = self.get_metadata(ParentNodeProvider, new_node)
-                    # fall-through
-                if type(new_node) == cst.If:
-                    break
-
-                if type(new_node) in [cst.Try, cst.TryStar, cst.ExceptHandler, cst.ExceptStarHandler]:
-                    # ignore try-except-finally blocks
-                    new_node = None
-                    break
-
-        except KeyError as e:
-            # no containing `if` for this `raise`
-            # print(f'{line=}')
-            # print(f'<{r(node)}>'
-            #       f'[{r(new_node)}]')
-            # print("=" * 10)
-            new_node = None
-
-        if new_node is not None:
-            try:
-                context = self.get_metadata(ParentNodeProvider, new_node)
-            except:
-                context = None
-            line_if = self.get_metadata(PositionProvider, new_node).start.line
-
-            self.samples.append({'line_raise': line,
-                                 'line_if': line_if,
-                                 'raise': node,
-                                 'cond': new_node.test,
-                                 'else': else_branch,
-                                 'context': None,
-                                 })
-
-        self.lines.append(line)
-
-
-""" Unused - elif is an if + else """
-"""
-class FindElif(cst.CSTVisitor):
-    def __init__(self):
-        super().__init__()
-        self.ifs = []
-
-    def visit_Elif(self, node: cst.Elif):
-        try:
-            self.ifs.append(node)
-        except Exception as e:
-            print(e)
-"""
-
-"""
-class ChangeIf(cst.CSTTransformer):
-    # todo unused
-    def __init__(self):
-        super().__init__()
-        self.ifs = []
-        self.other_calls = []
-        self.prints_detailed = []
-        self.stack: List[Tuple[str, ...]] = []
-
-    def visit_If(self, node: cst.If):
-        try:
-            # node.body
-            # node.orelse
-            self.ifs.append(node)
-        except Exception as e:
-            print(e)
-
-    def leave_If(self, original_node: cst.If, updated_node: cst.If) -> cst.If:
-        new_conditional = cst.Not(cst.If.test)
-        new_node = updated_node.with_changes(test=new_conditional)
-        return new_node
-"""
-
-"""
-def get_raise_snippets(if_finder):
-    snippets = []
-
-    raise_finder = FindRaise()  # init only once
-
-    for i, if_i in enumerate(if_finder.ifs):
-        code_block = r(if_i)
-        # body_ = body
-        body = cst.MetadataWrapper(cst.parse_module(code_block))
-        body.visit(raise_finder)
-
-        # lines_whole = code_block.count('\n')
-        lines_true = r(if_i.body).count('\n')
-        # if len(raise_finder.raises) > 0:  # should loop through all found raises (in x-block?)
-
-        negative_test = cst.UnaryOperation(operator=cst.Not(), expression=if_i.test)
-        else_branch = False
-        for (line_i, raise_i) in zip(raise_finder.lines, raise_finder.raises):
-            if line_i > lines_true:
-                else_branch = True
-
-            test = negative_test if else_branch else if_i.test
-
-            snippets.append(
-                {
-                    "if": test,
-                    "raise": raise_i,
-                    "line_if": if_finder.current_line,
-                    "line_raise": line_i,
-                    "code": code_block,
-                    "active_if": if_finder.lines[-1]
-                })
-
-    return snippets
-"""
-
-
-def load_tokenizer():
-    tokenizer = ByteLevelBPETokenizer(
-        "../shared_resources/pretrained_tokenizer/py_tokenizer-vocab.json",
-        "../shared_resources/pretrained_tokenizer/py_tokenizer-merges.txt",
-    )
-    tokenizer.post_processor = BertProcessing(
-        ("</s>", tokenizer.token_to_id("</s>")),
-        ("<s>", tokenizer.token_to_id("<s>")),
-    )
-    tokenizer.enable_truncation(max_length=config.model_input_len)
-    tokenizer.enable_padding(length=config.model_input_len)
-    return tokenizer
-
-
+# interesting segment indices
 segments_idx = {
     "simple_if": 1,
     "simple_else": 5,
@@ -263,122 +43,7 @@ segments_idx = {
 }
 
 
-def inverse_operator(operator):
-    inverse_mapping = {
-        cst.Equal: cst.NotEqual,
-        cst.NotEqual: cst.Equal,
-        cst.GreaterThan: cst.LessThanEqual,
-        cst.LessThanEqual: cst.GreaterThan,
-        cst.GreaterThanEqual: cst.LessThan,
-        cst.LessThan: cst.GreaterThanEqual,
-        cst.Is: cst.IsNot,
-        cst.IsNot: cst.Is,
-        cst.In: cst.NotIn,
-        cst.NotIn: cst.In,
-
-    }
-    op_type = type(operator)
-    if op_type in inverse_mapping:
-        return inverse_mapping[op_type]
-    else:
-        raise Exception(f"Unknown operator: {operator}")
-
-
-def rebuild_cond(cond, parentheses=False):
-    # todo test for all possible types: BooleanOperation, BinaryOperation (5 + 5)
-    kw = {k: cond.__getattribute__(k) for k in cond.__slots__}
-    if parentheses:
-        # wrap in parentheses
-        kw['lpar'] = [cst.LeftParen(cst.SimpleWhitespace(value=''))]
-        kw['rpar'] = [cst.RightParen(cst.SimpleWhitespace(value=''))]
-    else:
-        # remove parentheses
-        kw['lpar'] = []
-        kw['rpar'] = []
-    rebuilt = type(cond)(**kw)
-    return rebuilt
-
-
-def negate_cond(cond):
-    try:
-
-        if type(cond) == cst.UnaryOperation and type(cond.operator) == cst.Not:
-            # extract `x` from `not (x)`
-            return rebuild_cond(cond.expression, parentheses=False)
-        elif type(cond) == cst.Comparison:
-            inv_op = inverse_operator(cond.comparisons[0].operator)
-            tgt = cst.ComparisonTarget(operator=inv_op(), comparator=cond.comparisons[0].comparator)
-
-            return cst.Comparison(
-                left=cond.left,
-                comparisons=[
-                    tgt
-                ]
-                # paretheses removed on purpose, no semantic change
-            )
-        # elif type(cond) == cst.And:
-        # todo add DeMorgan's laws
-        elif type(cond) in {cst.Attribute, cst.Call}:
-            # don't add parentheses
-            return cst.UnaryOperation(operator=cst.Not(), expression=cond)
-        else:
-            # add parentheses
-            parenthesized = rebuild_cond(cond, parentheses=True)
-
-            return cst.UnaryOperation(operator=cst.Not(), expression=parenthesized)
-    except Exception as e:
-        print(e)
-        return None
-
-
-class LogTime:
-    def __init__(self):
-        self.start = time.time()
-        self.times = []
-        self.messages = []
-
-    def log(self, msg):
-        self.times.append(time.perf_counter())
-        self.messages.append(msg)
-
-    def print(self):
-        print('=' * 10, '\n'
-                        ' i| time| message')
-        for i, (t, msg) in enumerate(zip(self.times, self.messages)):
-            print(f'{i:02d}| {(t - self.times[0]):2.2f}| {msg}')
-
-
-if __name__ == '__main__':
-    ts = LogTime()
-    ts.log('start')
-    archive_file = '../shared_resources/data.zip'
-    file = 'functions_list.json'
-    with zipfile.ZipFile(archive_file) as archive:
-        with archive.open(file) as f:
-            segments = json.load(f)
-
-    ts.log('json read finished')
-    # print(sum(map(g, segments)))
-
-    samples = []
-    start = 0
-    idx = list((segments_idx.values()))
-    for name, i in segments_idx.items():  # [start: start + 2]  # [74:75] # 208:209
-        segment = segments[i]
-        tree = cst.MetadataWrapper(cst.parse_module(segment))
-        raise_finder = FindRaise()  # init only once
-        tree.visit(raise_finder)
-        for s in raise_finder.samples:
-            # keep preceding context - lines before the `if`
-            context_end_line = s['line_if'] - 1
-            pre_context = "\n".join(segment.split('\n')[:context_end_line])
-            s['context'] = pre_context
-            s['segment'] = start + i
-
-        samples.extend(raise_finder.samples)
-
-    ts.log('samples extracted')
-
+def print_samples(samples):
     for s in samples:
         print("=" * 4)
         # print(s['context'])
@@ -389,24 +54,41 @@ if __name__ == '__main__':
             without_parentheses = rebuild_cond(s['cond'], parentheses=False)
             p(without_parentheses)
             # p(s['cond'])
-
         p(s['raise'])
 
-    ts.log('negated')
+
+# def main():
+if __name__ == '__main__':
+    ts = LogTime()
+    ts.log('start')
+
+    segments = load_segments()
+
+    ts.log('json read finished')
+    # print(sum(map(g, segments)))
+
+    samples = extract_raises(segments, max=None)
+
+    ts.log('samples extracted')
+
+    # print_samples(samples)
+    # ts.log('printed')
 
     # Exploration:
     # max_char_len = max(map(len, snippets))
     # print(f'Max observed input len = {max_char_len} chars.')
 
     df = pd.DataFrame(samples)
+    pd.to_pickle(df, config.dataset_preprocessed_path)
+    # dd = pd.read_pickle(config.dataset_preprocessed_path)
 
     if False:
-        tokenizer = load_tokenizer()
+        tokenizer = load_tokenizer(config.model_input_len)
         embed_model = gensim.models.FastText.load(config.fasttext_path)
 
         embeddings = []
         token_lens = []
-        for s in snippets:
+        for s in samples:
             tokens = tokenizer.encode(s)
             token_lens.append(tokens.tokens.index('[PAD]'))
             token_embeds = embed_model.wv[tokens.tokens]
@@ -422,6 +104,12 @@ if __name__ == '__main__':
 
     # print(list(np.array(ts) - ts[0]))
     ts.print()
+
+    count = 0
+    for s in segments:
+        c = s.count('raise')
+        count += c
+
     """
     Where I finished:
         .    
@@ -437,12 +125,13 @@ if __name__ == '__main__':
         - save embeddings 
             DONE
         - run for whole dataset
+            DONE
         - dodělat elify
     
         - Conditions:
-            #DONE#
-            for a simple parenthesized condition you can just remove the brackets
-            otherwise it could be a sign of non-manipulated input sample
-            
+
 - 
     """
+
+# if __name__ == '__main__':
+#     main()

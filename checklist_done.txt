@@ -1,0 +1,15 @@
+extracting: 
+	line number of `if` and `raise`
+
+	pre-context of the if-raise
+
+	inside else-branch flag
+	
+inverting any condition
+
+removing all unnecessary parentheses
+(x) -> x
+
+
+
+

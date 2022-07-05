@@ -1,0 +1,86 @@
+"""
+if A:
+	if cond(X):
+		raise ...
+
+else:
+	if not cond(X):
+		raise ...
+
+"""
+
+Depending on the outside context, two seemingly opposite cases may actually be correct.
+
+We can only decide at a local scope
+
+
+=====
+
+how to handle:
+
+I) Keep `if (cond): raise(err)` only.
+= throw away code before and after the raise
+
+if isinstance(st,epg.state):
+    return st
+else:
+    raise TypeError('state is not state')
+    return None
+
+a)
+add not to the condition and keep cond + 
+
+...
+
+
+`if (cond1): block1()
+elif (cond2): block2()
+elif (cond3): block3()
+else: block4()`
+
+case 3:
+	block3() == raise(err3)
+
+	if (not cond1 and not cond2 and cond3): block3()
+
+case 4:
+	block4() == raise(err4)
+
+	if (not cond 1 and not cond2 and not cond3): block4()
+	
+	
+
+====
+hyperparameter space:
+
+	fasttext embeddings yes/no
+
+	tokenizers
+
+	model architecture
+
+
+context:
+	on average 930 characters long
+	maximum 84159 characters.
+
+	keep first 5 lines and then last 50
+
+raise:
+	[characters]
+	min: 5
+	avg: 69
+	max: 774
+
+
+"""
+
+max lengths
+in first 1000:
+
+cond        88
+raise      167
+context    256
+"""
+
+

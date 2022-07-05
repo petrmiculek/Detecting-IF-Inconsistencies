@@ -15,7 +15,9 @@ def predict(model, test_files):
     """
     TODO: Implement your method for predicting inconsistencies.
     """
-    raise Exception("Method not yet implemented.")
+    # raise Exception("Method not yet implemented.")
+    return None
+
 
 
 def load_model(source):
