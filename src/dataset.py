@@ -18,6 +18,7 @@ from torch.utils.data import Dataset, Subset, random_split, DataLoader
 
 # local
 from src import config
+from src.extract import load_segments, extract_raises
 from src.preprocess import rebuild_cond, negate_cond, load_tokenizer
 from src.util import real_len, r
 
@@ -31,11 +32,25 @@ from src.util import repr_cond_raise
 
 
 class IfRaisesDataset(Dataset):
-    def __init__(self, path, tokenizer, transform=None, fraction=1.0):
-        assert os.path.isfile(path), \
-            'Dataset could not find path "{}"'.format(path)
+    def __init__(self, path: str, tokenizer, transform=None, fraction=1.0, df_as_input=None):
+        if path is None:
+            self.dataset = df_as_input
+        else:
+            assert os.path.isfile(path), \
+                'Dataset could not find path "{}"'.format(path)
 
-        self.dataset = pd.read_pickle(path)
+            if path.endswith('.pkl'):
+                # dataframe with already extracted if-raises
+                self.dataset = pd.read_pickle(path)
+            elif path.endswith('.json'):
+                # prediction scenario
+                segments = load_segments(archive=None, file=path)
+                samples = extract_raises(segments, max=None)
+
+                self.dataset = pd.DataFrame(samples)
+
+            # works with source dataframe
+
         self.transform = transform
         self.tokenizer = tokenizer
         self.fraction = fraction

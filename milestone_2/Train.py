@@ -40,17 +40,16 @@ from torch.utils.tensorboard import SummaryWriter
 from tokenizers.implementations import ByteLevelBPETokenizer
 from tokenizers.processors import BertProcessing
 
-import wandb
+import wandb as wb
 
 # local
 from src import config
 from src.config import consistent, inconsistent
+from src.extract import load_segments, extract_raises
 from src.preprocess import negate_cond, rebuild_cond, load_tokenizer
 from src.util import count_parameters
 from src.dataset import IfRaisesDataset, get_dataset_loaders
 from src.model import LSTMBase as LSTM
-
-# from ..milestone_1.run import model_predict
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -59,6 +58,10 @@ parser.add_argument(
     '--destination', help="Path to save your trained model.", required=True)
 
 """
+evaluation:
+    - accuracy
+    - confusion matrix
+
 data:
     - 
     
@@ -83,45 +86,173 @@ def model_predict(x):
     return result_dict
 
 
+"""
 def train_model(model, source):
-    """
-    TODO: Implement your method for training the model here.
-    """
-
-    raise Exception("Method not yet implemented.")
+    pass
 
 
-def save_model(model, destination):
-    """
-    Save model to destination.
-    """
+def s ave_model(model, destination):
+    # Save model to destination.
     torch.save(model.state_dict(), destination)
+"""
 
 
-def print_setup(model, device):
-    print(model)
-    count_parameters(model)
-    if device.type == 'cuda':
-        print(torch.cuda.get_device_name(0))
-        print('Memory Usage:')
-        print('Allocated:', round(torch.cuda.memory_allocated(0) / 1024 ** 3, 1), 'GB')
-        print('Cached:   ', round(torch.cuda.memory_reserved(0) / 1024 ** 3, 1), 'GB')
+class ModelTraining:
+    def __init__(self, dataset_path):
+        self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
+        """ Dataset and Preprocessing """
+        self.dataset_path = '../shared_resources/dataset_preprocessed_1000.pkl'
+        # dataset_path = config.dataset_preprocessed_path
+        self.dataset_path = dataset_path
+
+        self.tokenizer = load_tokenizer(config.model_input_len)
+        # dataset = IfRaisesDataset(dataset_path, tokenizer=tokenizer, fraction=0.1, )
+
+        self.dataset_fraction = 1.0
+        datasets = get_dataset_loaders(dataset_path, self.tokenizer,
+                                       fraction=self.dataset_fraction,
+                                       batch_size=1
+                                       )
+        self.train_dataset, self.val_dataset, self.test_dataset = datasets
+
+        """ Model """
+        # todo: put hyperparameters to config
+        self.lr = 1e-2
+        self.batch_size = 1
+
+        self.epochs_trained = 0
+
+        self.model = LSTM(config.embedding_dim, 128, 1)
+        self.model.cuda()
+        self.bce_loss = nn.BCELoss()
+        self.optimizer = optim.AdamW(self.model.parameters(), lr=self.lr)
+
+        self.print_setup()
+
+        """ Logging """
+        wb.init(project="asdl")
+
+        self.training_run_id = datetime.datetime.now().strftime("%m-%d-%H-%M-%S")
+        print(f'Training run ID: {self.training_run_id}')
+        self.outputs_dir = join('runs', self.training_run_id)
+        os.makedirs(self.outputs_dir, exist_ok=True)
+        self.writer = SummaryWriter(self.outputs_dir)
+        self.writer.add_text('run_id', self.training_run_id)
+
+        self.checkpoint_path = join(self.outputs_dir, f'checkpoint_{self.training_run_id}.pt')
+        # self.early_stopping = EarlyStopping(patience=config.HYPERPARAMETERS['early_stopping_patience'],
+        #                                     verbose=True, path=self.checkpoint_path)
+
+        wb.config = {
+            "run_id": self.training_run_id,
+            "learning_rate": self.lr,
+            "batch_size": self.batch_size,
+            "optimizer": str(self.optimizer),
+            "dataset_fraction": self.dataset_fraction,
+        }
+        wb.watch(self.model, criterion=self.bce_loss, log="all", log_freq=100)
+
+    def print_setup(self):
+        print(self.model)
+        count_parameters(self.model)
+        if self.device.type == 'cuda':
+            print(torch.cuda.get_device_name(0))
+            print('Memory Usage:')
+            print('Allocated:', round(torch.cuda.memory_allocated(0) / 1024 ** 3, 1), 'GB')
+            print('Cached:   ', round(torch.cuda.memory_reserved(0) / 1024 ** 3, 1), 'GB')
+
+    def train(self, epochs=20):
+        start_time = time.time()
+        print('Training starts...')
+
+        epoch_training_loss = np.nan
+        epoch_validation_loss = np.nan
+
+        from_ = self.epochs_trained
+        to_ = self.epochs_trained + epochs
+        for epoch in range(from_, to_):
+            epoch_training_losses = []
+            epoch_validation_losses = []
+
+            self.model.train()
+            # one epoch
+            for i, sample in tqdm.tqdm(enumerate(self.train_dataset)):
+                x, y = sample
+                x = x.to(device=self.device, dtype=torch.float)
+                y = y.to(device=self.device, dtype=torch.float)
+                self.model.zero_grad()
+                pred = self.model(x)
+                loss = self.bce_loss(pred[0], y)  # batch size 1
+                loss.backward()
+                self.optimizer.step()
+
+                # logging
+                loss_value = loss.item()
+                epoch_training_losses.append(loss_value)
+
+            self.model.eval()
+
+            for i, sample in tqdm.tqdm(enumerate(self.val_dataset)):
+                with torch.no_grad():
+                    x, y = sample
+                    x = x.to(device=self.device, dtype=torch.float)
+                    y = y.to(device=self.device, dtype=torch.float)
+                    pred = self.model(x)
+                    loss = self.bce_loss(pred[0], y)
+
+                    # logging
+                    loss_value = loss.item()
+                    epoch_validation_losses.append(loss_value)
+
+            # logging
+            epoch_training_loss = np.nanmean(epoch_training_losses)
+            epoch_validation_loss = np.nanmean(epoch_validation_losses)
+            self.writer.add_scalars('Loss/Total',
+                                    {'train': epoch_training_loss,
+                                     'val': epoch_validation_loss
+                                     }, epoch)
+            wb.log({'loss_train': epoch_training_loss,
+                    'loss_val': epoch_validation_loss
+                    }, step=epoch)
+
+        self.epochs_trained += epochs
+
+        self.writer.flush()
+        self.writer.close()
+
+        time_elapsed = time.time() - start_time
+
+        print(f'Training finished in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s.')
+        print(f'Trained epochs: {self.epochs_trained}\n'
+              f'{epoch_training_loss=:.3f}\n'
+              f'{epoch_validation_loss=:.3f}')
+
+    def save_model(self, path):
+        """
+        Save model to path
+        """
+        torch.save(self.model.state_dict(), path)
 
 
-from src.extract import load_segments, extract_raises
-
-# def main():
-if __name__ == "__main__":
+# if __name__ == "__main__":
+def main():
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     print(f'Running on device: {device}')
 
     args = parser.parse_args()
+
     # model = train_model(model=None, source=args.source)
     # save_model(model, args.destination)
 
-    # segments = load_segments(archive=None, file=args.source)
-    # samples = extract_raises(segments, max=None)
+    args.source = '../shared_resources/real_test_for_milestone3/real_consistent.json'
+    source = '../shared_resources/real_test_for_milestone3/real_consistent.json'
+    dataset_path = source
 
+    # dataset_path = '../shared_resources/dataset_preprocessed_1000.pkl'
+    model_training = ModelTraining(dataset_path=dataset_path)
+    model_training.train(epochs=2)
+    model_training.save_model(config.model_weights_path)
 
     if False:
         # take inspiration from TrainingArguments and Trainer
@@ -134,10 +265,8 @@ if __name__ == "__main__":
 
         tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
 
-
         def preprocess_function(examples):
             return tokenizer(examples["text"], truncation=True)
-
 
         tokenized_imdb = imdb.map(preprocess_function, batched=True)
 
@@ -165,112 +294,6 @@ if __name__ == "__main__":
 
         trainer.train()
 
-    """ Dataset and Preprocessing """
-    dataset_path = '../shared_resources/dataset_preprocessed_1000.pkl'
-    # dataset_path = config.dataset_preprocessed_path
-    tokenizer = load_tokenizer(config.model_input_len)
-    dataset = IfRaisesDataset(dataset_path, tokenizer=tokenizer, fraction=0.1, )
 
-    dataset_fraction = 0.1
-    train_dataset, val_dataset, test_dataset = get_dataset_loaders(dataset_path, tokenizer,
-                                                                   fraction=dataset_fraction,
-                                                                   batch_size=1
-                                                                   )
-
-    """ Model """
-    # todo: put to config
-    lr = 1e-2
-    epochs = 20
-    batch_size = 1
-
-    model = LSTM(config.embedding_dim, 128, 1)
-    model.cuda()
-    print_setup(model, device)
-
-    bce_loss = nn.BCELoss()
-
-    optimizer = optim.AdamW(model.parameters(), lr=lr)
-
-
-    if True:
-        """ Logging """
-        wandb.init(project="asdl")
-
-        training_run_id = datetime.datetime.now().strftime("%m-%d-%H-%M-%S")
-        print(f'Training run ID: {training_run_id}')
-        outputs_dir = join('runs', training_run_id)
-        os.makedirs(outputs_dir, exist_ok=True)
-        writer = SummaryWriter(outputs_dir)
-        writer.add_text('run_id', training_run_id)
-
-        checkpoint_path = join(outputs_dir, f'checkpoint_{training_run_id}.pt')
-        # early_stopping = EarlyStopping(patience=config.HYPERPARAMETERS['early_stopping_patience'],
-        #                                     verbose=True, path=checkpoint_path)
-
-        wandb.config = {
-            "run_id": training_run_id,
-            "learning_rate": lr,
-            "epochs": epochs,
-            "batch_size": batch_size,
-            "optimizer": str(optimizer),
-            "dataset_fraction": dataset_fraction,
-        }
-        wandb.watch(model, criterion=bce_loss, log="all", log_freq=100)
-
-    start_time = time.time()
-    print('Training starts...')
-
-    epochs_trained = 0
-
-    for epoch in range(epochs_trained, epochs_trained + epochs):
-        epoch_training_losses = []
-        epoch_validation_losses = []
-
-        model.train()
-        # one epoch
-        for i, sample in tqdm.tqdm(enumerate(train_dataset)):
-            x, y = sample
-            x = x.to(device=device, dtype=torch.float)
-            y = y.to(device=device, dtype=torch.float)
-            model.zero_grad()
-            pred = model(x)
-            loss = bce_loss(pred[0], y)  # batch size 1
-            loss.backward()
-            optimizer.step()
-
-            # logging
-            loss_value = loss.item()
-            epoch_training_losses.append(loss_value)
-
-        model.eval()
-
-        for i, sample in tqdm.tqdm(enumerate(val_dataset)):
-            with torch.no_grad():
-                x, y = sample
-                x = x.to(device=device, dtype=torch.float)
-                y = y.to(device=device, dtype=torch.float)
-                pred = model(x)
-                loss = bce_loss(pred[0], y)
-
-                # logging
-                loss_value = loss.item()
-                epoch_validation_losses.append(loss_value)
-
-        epoch_training_loss = np.nanmean(epoch_training_losses)
-        epoch_validation_loss = np.nanmean(epoch_validation_losses)
-        writer.add_scalars('Loss/Total',
-                           {'train': epoch_training_loss,
-                            'val': epoch_validation_loss
-                            }, epoch)
-        wandb.log({'loss_train': epoch_training_loss,
-                   'loss_val': epoch_validation_loss
-                   }, step=epoch)
-
-    writer.flush()
-    writer.close()
-
-    time_elapsed = time.time() - start_time
-
-    print(f'Training complete in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s.')
-
-    save_model(model, config.model_weights_path)
+if __name__ == '__main__':
+    main()
