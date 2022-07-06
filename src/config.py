@@ -3,17 +3,21 @@
 # Tokenization
 model_input_len = 256
 
-# Paths
+""" Paths """
 # Word Embedding
 fasttext_path = '../shared_resources/pretrained_fasttext/embed_if_32.mdl'
 
-dataset_tokenized_path = '../shared_resources/dataset_tokenized.npy'
+""" Dataset """
 dataset_preprocessed_path = '../shared_resources/dataset_preprocessed.pkl'
 
-model_weights_path = '../shared_resources/model_weights.pt'
+# unused
+dataset_tokenized_path = '../shared_resources/dataset_tokenized.npy'
 
 embedding_dim = 32
 
+
+""" Model """
+model_weights_path = '../shared_resources/model_weights.pt'
 
 # Target labels
 consistent = 0.0
@@ -31,4 +35,10 @@ HYPERPARAMETERS = {
     'lr_scheduler_factor': 0.5,
 
     'early_stopping_patience': 10,
+}
+
+twists = {
+    'recombination': True,
+    'negation': True,
+
 }

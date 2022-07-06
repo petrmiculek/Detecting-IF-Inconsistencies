@@ -4,7 +4,7 @@ import pandas as pd
 
 from src.util import r, real_len
 from src import config
-
+from src.preprocess import load_tokenizer
 
 def head(x, n=30):
     return x[:min(n, len(x))]
@@ -27,7 +27,7 @@ if __name__ == '__main__':
               f'\tmax: {max(strings_lengths)}\n'
               f'\tavg: {sum(strings_lengths) / len(strings_lengths)}')
 
-        from src.preprocess import load_tokenizer
+
 
         tokenizer = load_tokenizer(config.model_input_len)
         tokenized = list(map(tokenizer.encode, strings))

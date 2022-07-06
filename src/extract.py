@@ -80,10 +80,15 @@ def get_raise_snippets(if_finder):
 
     return snippets
 """
-def load_segments(archive='../shared_resources/data.zip', file='functions_list.json'):
 
-    with ZipFile(archive) as archive:
-        with archive.open(file) as f:
+
+def load_segments(archive='../shared_resources/data.zip', file='functions_list.json'):
+    if archive is not None:
+        with ZipFile(archive) as archive:
+            with archive.open(file) as f:
+                segments = json.load(f)
+    else:
+        with open(file) as f:
             segments = json.load(f)
     return segments
 
