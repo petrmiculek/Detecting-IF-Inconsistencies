@@ -5,19 +5,24 @@ model_input_len = 256
 
 """ Paths """
 # Word Embedding
-fasttext_path = '../shared_resources/pretrained_fasttext/embed_if_32.mdl'
+fasttext_path = 'shared_resources/pretrained_fasttext/embed_if_32.mdl'
 
 """ Dataset """
-dataset_preprocessed_path = '../shared_resources/dataset_preprocessed.pkl'
+dataset_preprocessed_path = 'shared_resources/dataset_preprocessed.pkl'
 
 # unused
-dataset_tokenized_path = '../shared_resources/dataset_tokenized.npy'
+dataset_tokenized_path = 'shared_resources/dataset_tokenized.npy'
 
 embedding_dim = 32
 
 
 """ Model """
-model_weights_path = '../shared_resources/model_weights.pt'
+model_weights_path = 'shared_resources/model_weights.pt'
+
+model = {
+    'hidden_size': 128,
+    'output_size': 1
+}
 
 # Target labels
 consistent = 0.0

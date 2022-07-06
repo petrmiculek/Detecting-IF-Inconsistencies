@@ -73,8 +73,8 @@ def load_tokenizer(model_input_len=None):
     :param model_input_len: int to pad, None to keep as is
     """
     tokenizer = ByteLevelBPETokenizer(
-        "../shared_resources/pretrained_tokenizer/py_tokenizer-vocab.json",
-        "../shared_resources/pretrained_tokenizer/py_tokenizer-merges.txt",
+        "shared_resources/pretrained_tokenizer/py_tokenizer-vocab.json",
+        "shared_resources/pretrained_tokenizer/py_tokenizer-merges.txt",
     )
     tokenizer.post_processor = BertProcessing(
         ("</s>", tokenizer.token_to_id("</s>")),

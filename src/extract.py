@@ -82,7 +82,7 @@ def get_raise_snippets(if_finder):
 """
 
 
-def load_segments(archive='../shared_resources/data.zip', file='functions_list.json'):
+def load_segments(archive='shared_resources/data.zip', file='functions_list.json'):
     if archive is not None:
         with ZipFile(archive) as archive:
             with archive.open(file) as f:

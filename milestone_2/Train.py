@@ -77,15 +77,6 @@ model todo:
 """
 
 
-def model_predict(x):
-    """
-    interface dummy
-    """
-    result_dict = np.zeros(len(x))
-    result_dict = [{k: v for (k, v) in zip(x['line_raise'], result_dict)}]
-    return result_dict
-
-
 """
 def train_model(model, source):
     pass
@@ -102,14 +93,14 @@ class ModelTraining:
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
         """ Dataset and Preprocessing """
-        self.dataset_path = '../shared_resources/dataset_preprocessed_1000.pkl'
+        self.dataset_path = 'shared_resources/dataset_preprocessed_1000.pkl'
         # dataset_path = config.dataset_preprocessed_path
         self.dataset_path = dataset_path
 
         self.tokenizer = load_tokenizer(config.model_input_len)
         # dataset = IfRaisesDataset(dataset_path, tokenizer=tokenizer, fraction=0.1, )
 
-        self.dataset_fraction = 1.0
+        self.dataset_fraction = 0.1
         datasets = get_dataset_loaders(dataset_path, self.tokenizer,
                                        fraction=self.dataset_fraction,
                                        batch_size=1
@@ -123,7 +114,7 @@ class ModelTraining:
 
         self.epochs_trained = 0
 
-        self.model = LSTM(config.embedding_dim, 128, 1)
+        self.model = LSTM(config.embedding_dim, config.model['hidden_size'])
         self.model.cuda()
         self.bce_loss = nn.BCELoss()
         self.optimizer = optim.AdamW(self.model.parameters(), lr=self.lr)
@@ -233,6 +224,7 @@ class ModelTraining:
         Save model to path
         """
         torch.save(self.model.state_dict(), path)
+        print(f'Model saved to "{path}"')
 
 
 # if __name__ == "__main__":
@@ -245,54 +237,14 @@ def main():
     # model = train_model(model=None, source=args.source)
     # save_model(model, args.destination)
 
-    args.source = '../shared_resources/real_test_for_milestone3/real_consistent.json'
-    source = '../shared_resources/real_test_for_milestone3/real_consistent.json'
+    args.source = 'shared_resources/real_test_for_milestone3/real_consistent.json'
+    source = 'shared_resources/real_test_for_milestone3/real_consistent.json'
     dataset_path = source
 
-    # dataset_path = '../shared_resources/dataset_preprocessed_1000.pkl'
+    dataset_path = 'shared_resources/dataset_preprocessed_1000.pkl'
     model_training = ModelTraining(dataset_path=dataset_path)
-    model_training.train(epochs=2)
+    model_training.train(epochs=20)
     model_training.save_model(config.model_weights_path)
-
-    if False:
-        # take inspiration from TrainingArguments and Trainer
-        from transformers import AutoTokenizer
-        from transformers import DataCollatorWithPadding
-        from transformers import AutoModelForSequenceClassification, TrainingArguments, Trainer
-        from datasets import load_dataset
-
-        imdb = load_dataset("imdb")
-
-        tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
-
-        def preprocess_function(examples):
-            return tokenizer(examples["text"], truncation=True)
-
-        tokenized_imdb = imdb.map(preprocess_function, batched=True)
-
-        data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
-
-        model = AutoModelForSequenceClassification.from_pretrained("prajjwal1/bert-tiny-mnli", num_labels=2)
-
-        training_args = TrainingArguments(
-            output_dir="./results",
-            learning_rate=2e-5,
-            # per_device_train_batch_size=16,
-            # per_device_eval_batch_size=16,
-            num_train_epochs=1,
-            weight_decay=0.01,
-        )
-
-        trainer = Trainer(
-            model=model,
-            args=training_args,
-            train_dataset=tokenized_imdb["train"],
-            # eval_dataset=tokenized_imdb["test"],
-            tokenizer=tokenizer,
-            # data_collator=data_collator,
-        )
-
-        trainer.train()
 
 
 if __name__ == '__main__':

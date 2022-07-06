@@ -7,7 +7,7 @@ import numpy as np
 if __name__ == '__main__':
 
 
-    dataset_path = '../shared_resources/dataset_preprocessed_1000.pkl'
+    dataset_path = 'shared_resources/dataset_preprocessed_1000.pkl'
     # dataset_path = config.dataset_preprocessed_path
     tokenizer = load_tokenizer(config.model_input_len)
 

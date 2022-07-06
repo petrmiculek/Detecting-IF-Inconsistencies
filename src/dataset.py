@@ -32,24 +32,21 @@ from src.util import repr_cond_raise
 
 
 class IfRaisesDataset(Dataset):
-    def __init__(self, path: str, tokenizer, transform=None, fraction=1.0, df_as_input=None):
-        if path is None:
-            self.dataset = df_as_input
+    def __init__(self, path: str, tokenizer, transform=None, fraction=1.0, eval_mode=False):
+        assert os.path.isfile(path), \
+            'Dataset could not find path "{}"'.format(path)
+
+        if path.endswith('.pkl'):
+            # dataframe with already extracted if-raises
+            self.dataset = pd.read_pickle(path)
+        elif path.endswith('.json'):
+            # prediction scenario
+            segments = load_segments(archive=None, file=path)
+            samples = extract_raises(segments, max=None)
+
+            self.dataset = pd.DataFrame(samples)
         else:
-            assert os.path.isfile(path), \
-                'Dataset could not find path "{}"'.format(path)
-
-            if path.endswith('.pkl'):
-                # dataframe with already extracted if-raises
-                self.dataset = pd.read_pickle(path)
-            elif path.endswith('.json'):
-                # prediction scenario
-                segments = load_segments(archive=None, file=path)
-                samples = extract_raises(segments, max=None)
-
-                self.dataset = pd.DataFrame(samples)
-
-            # works with source dataframe
+            raise ValueError('Unknown dataset format: {}'.format(path))  # if-raise, how meta
 
         self.transform = transform
         self.tokenizer = tokenizer
@@ -72,14 +69,47 @@ class IfRaisesDataset(Dataset):
         self.human_preds = []
         self.human_gt = []
 
+        self.eval_mode = eval_mode
+
     def __len__(self):
         return len(self.dataset)
+
+    def getitem_eval(self, idx):
+        sample = self.dataset.iloc[idx]  # recombination here
+        cond_node = sample['cond']
+        is_else = sample['else']
+        raise_node = sample['raise']
+        context_str = sample['context']
+        line_raise = sample['line_raise']
+
+        # fix cond
+        if is_else:
+            cond_node = negate_cond(cond_node)
+        else:
+            cond_node = rebuild_cond(cond_node, parentheses=False)
+
+        cond_str = r(cond_node)
+        raise_str = r(raise_node)
+
+        tokens_cond = self.tokenizer.encode(cond_str)
+        tokens_raise = self.tokenizer.encode(raise_str)
+
+        tokens_both = tokens_cond.tokens + tokens_raise.tokens[1:]  # skip start token for 'sentence 2'
+        embeds = self.embed_model.wv[tokens_both]
+
+        target = config.consistent  # watch out when loading
+
+        return embeds, target, line_raise
 
     def __getitem__(self, idx):
         """
         Returns:
 
         """
+        if self.eval_mode:
+            return self.getitem_eval(idx)
+        # ====================================================
+
         if isinstance(idx, slice):
             start, stop, step = idx.indices(len(self))
             return (self[i] for i in range(start, stop, step))
@@ -91,8 +121,8 @@ class IfRaisesDataset(Dataset):
 
         sample = self.dataset.iloc[idx]  # recombination here
 
-        if self.transform:
-            sample = self.transform(sample)
+        # if self.transform:
+        #     sample = self.transform(sample)
 
         cond_node = sample['cond']
         is_else = sample['else']
@@ -217,14 +247,13 @@ class IfRaisesDataset(Dataset):
             if raise_node.exc.value.value == 'NotImplementedError':
                 target = config.consistent
 
-
         return embeds, target
 
 
 def get_dataset_loaders(path, tokenizer,
                         transform=None, batch_size=4, workers=4,
                         training_split=.8, shuffle=False, fraction=1.0,
-                        random=False, ddp=False):
+                        random=False, ddp=False, eval_mode=True):
     """
     :param path: path to dataset
     :param tokenizer:
@@ -236,6 +265,7 @@ def get_dataset_loaders(path, tokenizer,
     :param fraction: % of data used for training
     :param random: randomize choice of train/val/test split
     :param ddp: enable when multi-gpu training
+    :param eval_mode:
     :return:
     """
 
@@ -244,7 +274,8 @@ def get_dataset_loaders(path, tokenizer,
     ds = IfRaisesDataset(path=path,
                          tokenizer=tokenizer,
                          transform=transform,
-                         fraction=fraction)
+                         fraction=fraction,
+                         eval_mode=eval_mode)
 
     train_len = int(training_split * len(ds))
     val_len = int(validation_split * len(ds))
@@ -273,7 +304,7 @@ def get_dataset_loaders(path, tokenizer,
     val_loader = DataLoader(val_ds, sampler=val_sampler, **loader_kwargs)
     test_loader = DataLoader(test_ds, sampler=test_sampler, **loader_kwargs)
 
-    if batch_size is not None:
+    if batch_size is not None and training_split < 1.0:
         if len(train_loader.dataset.indices) < batch_size:
             raise UserWarning('Training data subset too small', len(train_loader.dataset.indices))
 

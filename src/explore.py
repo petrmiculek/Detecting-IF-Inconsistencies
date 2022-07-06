@@ -11,7 +11,7 @@ def head(x, n=30):
 
 
 if __name__ == '__main__':
-    df = pd.read_pickle('../data/dataset_preprocessed_full.pkl')
+    df = pd.read_pickle('data/dataset_preprocessed_full.pkl')
 
     print(f'{len(df)} samples in total')
 
