@@ -10,7 +10,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/milestone_2/Train.py" />
-    <option name="PARAMETERS" value="--source shared_resources/data.zip --destination models" />
+    <option name="PARAMETERS" value="--source shared_resources/dataset_preprocessed_1000.pkl --destination shared_resources/model_weights2.pt" />
     <option name="SHOW_COMMAND_LINE" value="true" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

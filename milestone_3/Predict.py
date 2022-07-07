@@ -13,21 +13,21 @@ parser.add_argument(
 
 def predict(model, test_files):
     """
-    TODO: Implement your method for predicting inconsistencies.
+    TO DO: Implement your method for predicting inconsistencies.
     """
     raise Exception("Method not yet implemented.")
 
 
 def load_model(source):
     """
-    TODO: Implement your code to load the serialized model.
+    TO DO: Implement your code to load the serialized model.
     """
     raise Exception("Method not yet implemented.")
 
 
 def write_predictions(destination, predictions):
     """
-    TODO: Implement your code to write predictions to file. For format
+    TO DO: Implement your code to write predictions to file. For format
     of the JSON file refer to project description.
     """
     raise Exception("Method not yet implemented.")
@@ -44,3 +44,5 @@ if __name__ == "__main__":
 
     # write predictions to file
     write_predictions(args.destination, predictions)
+
+    # continuing my work in milestone_2

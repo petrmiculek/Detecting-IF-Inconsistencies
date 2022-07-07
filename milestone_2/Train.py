@@ -50,6 +50,7 @@ from src.preprocess import negate_cond, rebuild_cond, load_tokenizer
 from src.util import count_parameters
 from src.dataset import IfRaisesDataset, get_dataset_loaders
 from src.model import LSTMBase as LSTM
+from src.eval import compute_metrics, accuracy
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -82,14 +83,14 @@ def train_model(model, source):
     pass
 
 
-def s ave_model(model, destination):
+def save_model(model, destination):
     # Save model to destination.
     torch.save(model.state_dict(), destination)
 """
 
 
 class ModelTraining:
-    def __init__(self, dataset_path):
+    def __init__(self, dataset_path, ds_fraction=0.1):
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
         """ Dataset and Preprocessing """
@@ -100,7 +101,7 @@ class ModelTraining:
         self.tokenizer = load_tokenizer(config.model_input_len)
         # dataset = IfRaisesDataset(dataset_path, tokenizer=tokenizer, fraction=0.1, )
 
-        self.dataset_fraction = 0.1
+        self.dataset_fraction = ds_fraction
         datasets = get_dataset_loaders(dataset_path, self.tokenizer,
                                        fraction=self.dataset_fraction,
                                        batch_size=1
@@ -153,13 +154,19 @@ class ModelTraining:
             print('Allocated:', round(torch.cuda.memory_allocated(0) / 1024 ** 3, 1), 'GB')
             print('Cached:   ', round(torch.cuda.memory_reserved(0) / 1024 ** 3, 1), 'GB')
 
-    def train(self, epochs=20):
+    def train_model(self, epochs=20):
         start_time = time.time()
         print('Training starts...')
 
+        # logging
         epoch_training_loss = np.nan
         epoch_validation_loss = np.nan
+        predictions_train = []
+        gts_train = []
+        predictions_valid = []
+        gts_valid = []
 
+        # training + validation loop
         from_ = self.epochs_trained
         to_ = self.epochs_trained + epochs
         for epoch in range(from_, to_):
@@ -170,6 +177,8 @@ class ModelTraining:
             # one epoch
             for i, sample in tqdm.tqdm(enumerate(self.train_dataset)):
                 x, y = sample
+                gts_train.append(y)
+
                 x = x.to(device=self.device, dtype=torch.float)
                 y = y.to(device=self.device, dtype=torch.float)
                 self.model.zero_grad()
@@ -179,14 +188,19 @@ class ModelTraining:
                 self.optimizer.step()
 
                 # logging
-                loss_value = loss.item()
-                epoch_training_losses.append(loss_value)
+                with torch.no_grad():
+                    loss_value = loss.item()
+                    epoch_training_losses.append(loss_value)
+                    predictions_train.append(pred[0].item())
 
+            accu_train = accuracy(gts_train, predictions_train)['accuracy']
             self.model.eval()
 
-            for i, sample in tqdm.tqdm(enumerate(self.val_dataset)):
-                with torch.no_grad():
+            with torch.no_grad():
+                for i, sample in tqdm.tqdm(enumerate(self.val_dataset)):
                     x, y = sample
+                    gts_valid.append(y)
+
                     x = x.to(device=self.device, dtype=torch.float)
                     y = y.to(device=self.device, dtype=torch.float)
                     pred = self.model(x)
@@ -195,16 +209,22 @@ class ModelTraining:
                     # logging
                     loss_value = loss.item()
                     epoch_validation_losses.append(loss_value)
+                    predictions_valid.append(pred[0].item())
 
             # logging
             epoch_training_loss = np.nanmean(epoch_training_losses)
             epoch_validation_loss = np.nanmean(epoch_validation_losses)
-            self.writer.add_scalars('Loss/Total',
+            accu_valid = accuracy(gts_valid, predictions_valid)['accuracy']
+
+            self.writer.add_scalars('Loss',
                                     {'train': epoch_training_loss,
                                      'val': epoch_validation_loss
                                      }, epoch)
-            wb.log({'loss_train': epoch_training_loss,
-                    'loss_val': epoch_validation_loss
+
+            wb.log({'Train Loss': epoch_training_loss,
+                    'Valid Loss': epoch_validation_loss,
+                    'Train Acc': accu_train,
+                    'Valid Acc': accu_valid,
                     }, step=epoch)
 
         self.epochs_trained += epochs
@@ -227,25 +247,21 @@ class ModelTraining:
         print(f'Model saved to "{path}"')
 
 
-# if __name__ == "__main__":
-def main():
+# def main():
+if __name__ == "__main__":
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     print(f'Running on device: {device}')
 
     args = parser.parse_args()
 
-    # model = train_model(model=None, source=args.source)
-    # save_model(model, args.destination)
+    # con = 'shared_resources/real_test_for_milestone3/real_consistent.json'
+    # incon = 'shared_resources/real_test_for_milestone3/real_inconsistent.json'
+    # dataset_path = 'shared_resources/dataset_preprocessed_1000.pkl'
 
-    args.source = 'shared_resources/real_test_for_milestone3/real_consistent.json'
-    source = 'shared_resources/real_test_for_milestone3/real_consistent.json'
-    dataset_path = source
-
-    dataset_path = 'shared_resources/dataset_preprocessed_1000.pkl'
-    model_training = ModelTraining(dataset_path=dataset_path)
-    model_training.train(epochs=20)
-    model_training.save_model(config.model_weights_path)
+    model_training = ModelTraining(dataset_path=args.source)
+    model_training.train_model(epochs=20)
+    model_training.save_model(args.destination)
 
 
-if __name__ == '__main__':
-    main()
+# if __name__ == '__main__':
+#     main()

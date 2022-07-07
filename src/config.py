@@ -20,6 +20,7 @@ embedding_dim = 32
 model_weights_path = 'shared_resources/model_weights.pt'
 
 model = {
+    'input_size': embedding_dim,
     'hidden_size': 128,
     'output_size': 1
 }

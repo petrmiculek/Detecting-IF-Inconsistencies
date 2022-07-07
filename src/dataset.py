@@ -253,7 +253,7 @@ class IfRaisesDataset(Dataset):
 def get_dataset_loaders(path, tokenizer,
                         transform=None, batch_size=4, workers=4,
                         training_split=.8, shuffle=False, fraction=1.0,
-                        random=False, ddp=False, eval_mode=True):
+                        random=False, ddp=False, eval_mode=False):
     """
     :param path: path to dataset
     :param tokenizer:

@@ -4,6 +4,9 @@ import os
 import sys
 import shlex
 
+import sys
+sys.path.extend(['/home/petrmiculek/Code/asdl'])
+
 import argparse
 import torch
 import numpy as np
@@ -27,47 +30,55 @@ from src.extract import load_segments, extract_raises
 from src.preprocess import load_tokenizer
 from src.dataset import IfRaisesDataset, get_dataset_loaders
 from src.model import LSTMBase as LSTM
+from src.eval import compute_metrics, accuracy
 
 
 def predict(model, test_files):
     """
     Predict inconsistencies.
     """
-    test_files = ["shared_resources/real_test_for_milestone3/real_consistent.json"]
+    # fake_model = lambda x: torch.tensor([0.0], device=device)
+
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
     tokenizer = load_tokenizer(config.model_input_len)
     bce_loss = nn.BCELoss()
 
     all_outputs = []
-    for f in test_files:
-        predictions = []
-        gt = []
-        lines = []
-        dataset = IfRaisesDataset(f, tokenizer, fraction=1., eval_mode=True)
-        # dataset, _, _ = get_dataset_loaders(f, tokenizer, training_split=1., batch_size=1, eval_mode=True)
 
-        mean_loss = 0
-        for i, s in tqdm.tqdm(enumerate(dataset)):
-            with torch.no_grad():
-                x, y, line = s
-                x = torch.tensor(x).to(device)
-                y = torch.tensor(y).to(device)
-                pred = model(x)
-                loss = bce_loss(pred[0], y)
-                mean_loss += loss.item()
-                predictions.append(float(pred[0].item()))
-                gt.append(y.item())
-                lines.append(int(line))
+    # for test_file in test_files:  # apparently no
+    predictions = []
+    gts = []
+    lines = []
+    print('Extracting test data...')
+    dataset = IfRaisesDataset(test_files, tokenizer, fraction=1., eval_mode=True)
+    # dataset, _, _ = get_dataset_loaders(f, tokenizer, training_split=1., batch_size=1, eval_mode=True)
 
-        mean_loss /= len(dataset)
+    print('Running predictions...')
+    mean_loss = 0
+    for i, s in tqdm.tqdm(enumerate(dataset)):
+        with torch.no_grad():
+            x, y, line = s
+            y += 1
 
-        output = dict(sorted(zip(lines, predictions)))
-        all_outputs.append(output)
-        correct = np.array(predictions) == np.array(gt)
+            gts.append(y)
+            x = torch.tensor(x).to(device)
+            y = torch.tensor(y).to(device)
+            pred = model(x)
+            loss = bce_loss(pred[0], y)
+            mean_loss += loss.item()
+            predictions.append(float(pred[0].item()))
+            lines.append(int(line))
 
-        print(f'Mean loss: {mean_loss}')
-        print(f'Accuracy: {correct.sum() / len(correct)}')
+    mean_loss /= len(dataset)
+
+    output = dict(sorted(zip(lines, predictions)))
+    all_outputs.append(output)
+
+    # todo test
+    compute_metrics(gts, predictions)
+
+    print(f'Mean loss: {mean_loss:.4f}')
 
     return all_outputs
 
@@ -86,14 +97,8 @@ def load_model(source):
     """
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
-    source = "shared_resources/model_weights.pt"
-    model = LSTM(config.model_input_len, config.model['hidden_size'])
+    model = LSTM(config.model['input_size'], config.model['hidden_size'])
     model.load_state_dict(torch.load(source))
-    """
-    RuntimeError: Error(s) in loading state_dict for LSTMBase:
-    size mismatch for lstm.weight_ih_l0: copying a param with shape torch.Size([512, 32]) 
-    from checkpoint, the shape in current model is torch.Size([512, 256]).
-    """
     model.to(device)
     model.eval()
 
@@ -117,10 +122,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # load the serialized model
-    # model = load_model(args.model)
-
+    model = load_model(args.model)
     # predict incorrect location for each test example.
-    predictions = predict(lambda x: torch.tensor([0.0], device=device), args.source)
-
+    predictions = predict(model, args.source)
     # write predictions to file
     write_predictions(args.destination, predictions)

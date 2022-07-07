@@ -11,14 +11,14 @@ parser.add_argument(
 
 def train_model(model, source):
     """
-    TODO: Implement your method for training the model here.
+    TO DO: Implement your method for training the model here.
     """
     raise Exception("Method not yet implemented.")
 
 
 def save_model(model, destination):
     """
-    TODO: Implement your method for saving the training the model here.
+    TO DO: Implement your method for saving the training the model here.
     """
     raise Exception("Method not yet implemented.")
 
@@ -29,3 +29,5 @@ if __name__ == "__main__":
     model = train_model(args.source)
 
     save_model(model, args.destination)
+
+    # continuing my work in milestone_2
