@@ -23,13 +23,16 @@ def compute_metrics(gts, predictions):
 def accuracy(gts, predictions, predictions_hard=None):
     """
     Compute metrics from predictions and ground truth
+    :param gts: ground truth
+    :param predictions: predictions
+    :param predictions_hard: prediction decisions
     """
     if predictions_hard is None:
-        predictions_hard = np.array([1 if x >= 0.5 else 0 for x in predictions])
+        predictions_hard = torch.tensor([1 if x >= 0.5 else 0 for x in predictions])
 
-    correct = predictions_hard == np.array(gts)
+    correct = predictions_hard == torch.tensor(gts)
 
-    accuracy = np.sum(correct) / len(correct)
+    accuracy = torch.sum(correct) / len(correct)
 
     results = {
         'accuracy': accuracy

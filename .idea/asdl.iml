@@ -9,6 +9,8 @@
       <excludeFolder url="file://$MODULE_DIR$/milestone_2/wandb" />
       <excludeFolder url="file://$MODULE_DIR$/milestone_2/runs" />
       <excludeFolder url="file://$MODULE_DIR$/shared_resources" />
+      <excludeFolder url="file://$MODULE_DIR$/runs" />
+      <excludeFolder url="file://$MODULE_DIR$/wandb" />
     </content>
     <orderEntry type="jdk" jdkName="Python 3.8 (asdl)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />

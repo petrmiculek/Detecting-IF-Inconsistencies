@@ -5,6 +5,7 @@ import sys
 import shlex
 
 import sys
+
 sys.path.extend(['/home/petrmiculek/Code/asdl'])
 
 import argparse
@@ -14,8 +15,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import tqdm
 import torch.nn as nn
-
-
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -34,6 +33,38 @@ from src.eval import compute_metrics, accuracy
 
 
 def predict(model, test_files):
+    """
+    Predict inconsistencies.
+    """
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
+    tokenizer = load_tokenizer(config.model_input_len)
+
+    all_outputs = []
+
+    # for test_file in test_files:  # apparently no
+    predictions = []
+    lines = []
+    print('Extracting test data...')
+    dataset = IfRaisesDataset(test_files, tokenizer, fraction=1., eval_mode=True)
+
+    print('Running predictions...')
+    for i, s in tqdm.tqdm(enumerate(dataset)):
+        with torch.no_grad():
+            x, _, line = s
+            x = torch.tensor(x).to(device)
+            pred = model(x)
+            predictions.append(float(pred[0].item()))
+            lines.append(int(line))
+
+    predictions_hard = [1 if x >= 0.5 else 0 for x in predictions]
+    output = dict(sorted(zip(lines, predictions_hard)))
+    all_outputs.append(output)
+
+    return all_outputs
+
+
+def evaluate(model, test_files):
     """
     Predict inconsistencies.
     """
@@ -127,3 +158,4 @@ if __name__ == "__main__":
     predictions = predict(model, args.source)
     # write predictions to file
     write_predictions(args.destination, predictions)
+    # print(predictions)

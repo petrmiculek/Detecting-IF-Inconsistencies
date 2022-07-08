@@ -60,20 +60,22 @@ parser.add_argument(
 
 """
 evaluation:
-    - accuracy
-    - confusion matrix
+    - accuracy #DONE#
+    - confusion matrix #DONE#
 
 data:
     - 
     
 
 model todo:
-    - batch size
-    - lr scheduler/decay
-    - early stopping
-    - amp scaler
-    - add dropout
+    
+    (once basic training works)
     - add bidirectional lstm
+    - batch size
+    - amp scaler - 16bit training
+    - early stopping
+    - lr scheduler/decay
+    - add dropout
         
 """
 
@@ -98,31 +100,27 @@ class ModelTraining:
         # dataset_path = config.dataset_preprocessed_path
         self.dataset_path = dataset_path
 
-        self.tokenizer = load_tokenizer(config.model_input_len)
-        # dataset = IfRaisesDataset(dataset_path, tokenizer=tokenizer, fraction=0.1, )
+        self.tokenizer = load_tokenizer(model_input_len=None)  # config.model_input_len
 
         self.dataset_fraction = ds_fraction
         datasets = get_dataset_loaders(dataset_path, self.tokenizer,
                                        fraction=self.dataset_fraction,
-                                       batch_size=1
+                                       batch_size=1, training_split=0.8,
                                        )
         self.train_dataset, self.val_dataset, self.test_dataset = datasets
 
         """ Model """
         # todo: put hyperparameters to config
-        self.lr = 1e-2
+        self.lr = 1e-3
         self.batch_size = 1
 
-        self.epochs_trained = 0
-
-        self.model = LSTM(config.embedding_dim, config.model['hidden_size'])
-        self.model.cuda()
-        self.bce_loss = nn.BCELoss()
-        self.optimizer = optim.AdamW(self.model.parameters(), lr=self.lr)
+        self.init_model()
 
         self.print_setup()
 
         """ Logging """
+        self.training_losses = []
+
         wb.init(project="asdl")
 
         self.training_run_id = datetime.datetime.now().strftime("%m-%d-%H-%M-%S")
@@ -143,7 +141,15 @@ class ModelTraining:
             "optimizer": str(self.optimizer),
             "dataset_fraction": self.dataset_fraction,
         }
-        wb.watch(self.model, criterion=self.bce_loss, log="all", log_freq=100)
+        wb.watch(self.model, criterion=self.bce_loss, log="all", log_freq=1000)
+
+    def init_model(self):
+        # setting self-variables outside init for clarity and reusability
+        self.epochs_trained = 0
+        self.model = LSTM(config.embedding_dim, config.model['hidden_size'])
+        self.model.cuda()
+        self.bce_loss = nn.BCELoss()
+        self.optimizer = optim.AdamW(self.model.parameters(), lr=self.lr)
 
     def print_setup(self):
         print(self.model)
@@ -166,6 +172,7 @@ class ModelTraining:
         predictions_valid = []
         gts_valid = []
 
+
         # training + validation loop
         from_ = self.epochs_trained
         to_ = self.epochs_trained + epochs
@@ -173,47 +180,74 @@ class ModelTraining:
             epoch_training_losses = []
             epoch_validation_losses = []
 
+            self.chosen_sample = next(iter(self.train_dataset))
+            print(f'Training on sample {self.chosen_sample[1].item()}')
+
             self.model.train()
+            # sample_train = self.train_dataset[0]
+            """
+            todo:
+            
+            2 samples fixed
+            1 sample re-extracted
+            10 samples fixed
+            
+            ditch the padding?
+            
+            """
+
             # one epoch
-            for i, sample in tqdm.tqdm(enumerate(self.train_dataset)):
-                x, y = sample
-                gts_train.append(y)
+            # with tqdm.tqdm(enumerate(self.train_dataset)) as pbar:
+            try:
+                with tqdm.tqdm(range(10)) as pbar:
+                    # for i, sample in pbar:
+                    for i in pbar:
+                        x, y = self.chosen_sample
+                        gts_train.append(y.item())
 
-                x = x.to(device=self.device, dtype=torch.float)
-                y = y.to(device=self.device, dtype=torch.float)
-                self.model.zero_grad()
-                pred = self.model(x)
-                loss = self.bce_loss(pred[0], y)  # batch size 1
-                loss.backward()
-                self.optimizer.step()
+                        x = x.to(device=self.device, dtype=torch.float)
+                        y = y.to(device=self.device, dtype=torch.float)
+                        self.model.zero_grad()
+                        pred = self.model(x)
+                        loss = self.bce_loss(pred[0], y)  # batch size 1
+                        loss.backward()
+                        self.optimizer.step()
 
-                # logging
-                with torch.no_grad():
-                    loss_value = loss.item()
-                    epoch_training_losses.append(loss_value)
-                    predictions_train.append(pred[0].item())
+                        # logging
+                        with torch.no_grad():
+                            loss_value = loss.item()
+                            epoch_training_losses.append(loss_value)
+                            self.training_losses.append(loss_value)
+                            predictions_train.append(pred[0].item())
+                            pbar.set_postfix(loss=f'{loss_value:.4f}')
 
-            accu_train = accuracy(gts_train, predictions_train)['accuracy']
+            except KeyboardInterrupt:
+                print('Stopped training through KeyboardInterrupt')
+
             self.model.eval()
 
             with torch.no_grad():
-                for i, sample in tqdm.tqdm(enumerate(self.val_dataset)):
-                    x, y = sample
-                    gts_valid.append(y)
+                with tqdm.tqdm(enumerate(self.val_dataset)) as pbar:
+                    for i, sample in pbar:
+                        x, y = sample
+                        gts_valid.append(y)
 
-                    x = x.to(device=self.device, dtype=torch.float)
-                    y = y.to(device=self.device, dtype=torch.float)
-                    pred = self.model(x)
-                    loss = self.bce_loss(pred[0], y)
+                        x = x.to(device=self.device, dtype=torch.float)
+                        y = y.to(device=self.device, dtype=torch.float)
+                        pred = self.model(x)
+                        loss = self.bce_loss(pred[0], y)
 
-                    # logging
-                    loss_value = loss.item()
-                    epoch_validation_losses.append(loss_value)
-                    predictions_valid.append(pred[0].item())
+                        # logging
+                        loss_value = loss.item()
+                        epoch_validation_losses.append(loss_value)
+                        predictions_valid.append(pred[0].item())
+
+                        pbar.set_postfix(loss=f'{loss_value:.4f}')
 
             # logging
             epoch_training_loss = np.nanmean(epoch_training_losses)
             epoch_validation_loss = np.nanmean(epoch_validation_losses)
+            accu_train = accuracy(gts_train, predictions_train)['accuracy']
             accu_valid = accuracy(gts_valid, predictions_valid)['accuracy']
 
             self.writer.add_scalars('Loss',
@@ -259,9 +293,9 @@ if __name__ == "__main__":
     # dataset_path = 'shared_resources/dataset_preprocessed_1000.pkl'
 
     model_training = ModelTraining(dataset_path=args.source)
+
     model_training.train_model(epochs=20)
     model_training.save_model(args.destination)
-
 
 # if __name__ == '__main__':
 #     main()

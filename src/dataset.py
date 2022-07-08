@@ -22,12 +22,14 @@ from src.extract import load_segments, extract_raises
 from src.preprocess import rebuild_cond, negate_cond, load_tokenizer
 from src.util import real_len, r
 
-# twist_enable
+# twist_enable - whether to twist
 DO_NOTHING = 0
-# twist
-FLIP_CONDITION = 0
-RECOMBINE_COND = 1
-RECOMBINE_RAISE = 2
+DO_TWIST = 1
+# twist - which twist to use
+NO_TWIST = 0  # only indicates no-twist label for the resulting sample - not an option for picking a twist
+FLIP_CONDITION = 1
+RECOMBINE_COND = 2
+RECOMBINE_RAISE = 3
 from src.util import repr_cond_raise
 
 
@@ -70,6 +72,7 @@ class IfRaisesDataset(Dataset):
         self.human_gt = []
 
         self.eval_mode = eval_mode
+        self.triplet_mode = False
 
     def __len__(self):
         return len(self.dataset)
@@ -101,6 +104,11 @@ class IfRaisesDataset(Dataset):
 
         return embeds, target, line_raise
 
+    def getitem_triplet(self, idx):
+        idx2, idx3 = np.random.randint(0, self.ds_len - 1, size=2)
+        # todo get a anchor, positive, negative triplet
+        return None, None, None
+
     def __getitem__(self, idx):
         """
         Returns:
@@ -108,6 +116,9 @@ class IfRaisesDataset(Dataset):
         """
         if self.eval_mode:
             return self.getitem_eval(idx)
+        # ====================================================
+        if self.triplet_mode:
+            return self.getitem_triplet(idx)
         # ====================================================
 
         if isinstance(idx, slice):
@@ -121,13 +132,16 @@ class IfRaisesDataset(Dataset):
 
         sample = self.dataset.iloc[idx]  # recombination here
 
-        # if self.transform:
-        #     sample = self.transform(sample)
-
         cond_node = sample['cond']
         is_else = sample['else']
         raise_node = sample['raise']
         context_str = sample['context']
+
+        # fix cond
+        if is_else:
+            cond_node = negate_cond(cond_node)
+        else:
+            cond_node = rebuild_cond(cond_node, parentheses=False)
 
         # debug
         if self.human_eval:
@@ -136,64 +150,7 @@ class IfRaisesDataset(Dataset):
             cond_str_orig = r(cond_node_orig)
             raise_str_orig = r(raise_node_orig)
 
-        # create inconsistent examples
-        twist_enable, twist = np.random.randint(0, 2, size=2)
-
-        # twist_enable = 1
-        twist = np.random.randint(1, 3)
-
-        # twists - part 1/2
-        if twist_enable == 1:
-            if twist == FLIP_CONDITION:
-                # negate
-                is_else = not is_else
-
-        # fix cond
-        if is_else:
-            cond_node = negate_cond(cond_node)
-        else:
-            cond_node = rebuild_cond(cond_node, parentheses=False)
-
-        # twists - part 2/2
-        if twist_enable == 1:
-            if twist == RECOMBINE_RAISE:
-                # swap in another raise
-                same_raise = True
-
-                while same_raise:
-                    diff_idx = np.random.randint(0, self.ds_len)
-                    diff_sample = self.dataset.iloc[diff_idx]
-                    diff_raise_node = diff_sample['raise']
-
-                    # check if raise is the same
-                    diff_raise_str = r(diff_raise_node)
-                    if diff_idx == idx or diff_raise_str != r(raise_node):
-                        same_raise = False
-                        raise_node = diff_raise_node
-                    else:
-                        pass
-                        # print(f'same raise: {idx}x{diff_idx}',
-                        #       diff_raise_str)
-
-            elif twist == RECOMBINE_COND:
-                # swap in another cond
-                same_cond = True
-
-                while same_cond:
-                    diff_idx = np.random.randint(0, self.ds_len)
-                    diff_sample = self.dataset.iloc[diff_idx]
-                    diff_cond_node = diff_sample['cond']
-
-                    # check if cond is the same
-                    diff_cond_node = rebuild_cond(diff_cond_node, parentheses=False)
-                    diff_cond_str = r(diff_cond_node)
-                    if diff_idx == idx or diff_cond_str != r(cond_node):
-                        same_cond = False
-                        cond_node = diff_cond_node
-                    else:
-                        pass
-                        # print(f'same cond: {idx}x{diff_idx}',
-                        #       diff_cond_str)
+        cond_node, raise_node, twist = self.twist_sample(idx, cond_node, raise_node)
 
         # get str repr
 
@@ -234,7 +191,7 @@ class IfRaisesDataset(Dataset):
         # embeddings.append(token_embeds)
         # embeds_raise = embed_model.wv[tokens_raise.tokens]
 
-        if twist_enable == DO_NOTHING:
+        if twist == NO_TWIST:
             target = config.consistent
         else:
             target = config.inconsistent
@@ -248,6 +205,75 @@ class IfRaisesDataset(Dataset):
                 target = config.consistent
 
         return embeds, target
+
+    def twist_sample(self, idx, cond_node, raise_node, force_twist=None):
+        """
+        Create inconsistent data samples.
+
+        :param idx: data sample index
+        :param cond_node: condition node
+        :param raise_node: raise statement node
+        :param force_twist: force a twist (or no twist), overriding the random choice
+        """
+        if force_twist is None:
+            twist_enable = np.random.choice([DO_NOTHING, DO_TWIST])
+            twist = np.random.choice([FLIP_CONDITION, RECOMBINE_COND, RECOMBINE_RAISE],
+                                     p=[0.5, 0.25, 0.25])
+        else:
+            twist_enable = DO_NOTHING if force_twist == DO_NOTHING else DO_TWIST
+            twist = force_twist
+
+        # twists - part 1/2
+        if twist_enable == DO_TWIST:
+            if twist == FLIP_CONDITION:
+                # negate
+                cond_node = negate_cond(cond_node)
+
+            if twist == RECOMBINE_RAISE:
+                # swap in another raise
+                same_raise = True
+
+                while same_raise:
+                    diff_idx = np.random.randint(0, self.ds_len)
+                    diff_sample = self.dataset.iloc[diff_idx]
+                    diff_raise_node = diff_sample['raise']
+
+                    # check if raise is the same
+                    diff_raise_str = r(diff_raise_node)
+                    if diff_idx == idx or diff_raise_str != r(raise_node):
+                        same_raise = False
+                        raise_node = diff_raise_node
+                    else:
+                        pass
+                        # print(f'same raise: {idx}x{diff_idx}',
+                        #       diff_raise_str)
+
+            elif twist == RECOMBINE_COND:
+                # swap in another cond
+                same_cond = True
+
+                while same_cond:
+                    diff_idx = np.random.randint(0, self.ds_len)
+                    diff_sample = self.dataset.iloc[diff_idx]
+                    diff_cond_node = diff_sample['cond']
+
+                    # check if cond is the same
+                    diff_cond_node = rebuild_cond(diff_cond_node, parentheses=False)
+                    diff_cond_str = r(diff_cond_node)
+                    if diff_idx == idx or diff_cond_str != r(cond_node):
+                        same_cond = False
+                        cond_node = diff_cond_node
+                    else:
+                        pass
+                        # print(f'same cond: {idx}x{diff_idx}',
+                        #       diff_cond_str)
+
+        # careful about indentation
+        else:
+            # twist_enable == DO_NOTHING => twist == NO_TWIST
+            twist = NO_TWIST
+
+        return cond_node, raise_node, twist
 
 
 def get_dataset_loaders(path, tokenizer,
