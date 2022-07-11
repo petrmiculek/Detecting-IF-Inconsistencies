@@ -5,6 +5,7 @@ import torch.nn as nn
 class LSTMBase(nn.Module):
     def __init__(self, input_size, hidden_size, output_size=1):
         super().__init__()
+        self.name = ''
         self.hidden_size = hidden_size
         self.input_size = input_size
         self.output_size = output_size

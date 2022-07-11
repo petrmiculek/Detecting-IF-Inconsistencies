@@ -15,6 +15,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import tqdm
 import torch.nn as nn
+from sklearn.metrics import roc_curve
 
 parser = argparse.ArgumentParser()
 parser.add_argument(

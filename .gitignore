@@ -1,2 +1,5 @@
 *.zip
 env/*
+/milestone_2/runs/
+/milestone_2/wandb/
+/wandb/

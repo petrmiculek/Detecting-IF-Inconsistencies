@@ -10,6 +10,17 @@ inverting any condition
 removing all unnecessary parentheses
 (x) -> x
 
+training and validation loop
+
+early stopping
+
+twists:
+	recombination
+	flipping the condition
+
+
+
+
 
 
 

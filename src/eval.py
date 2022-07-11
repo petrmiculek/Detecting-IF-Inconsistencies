@@ -7,6 +7,8 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 def compute_metrics(gts, predictions):
+
+    # todo unified call for evaluation
     predictions_hard = np.array([1 if x >= 0.5 else 0 for x in predictions])
 
     print(classification_report(gts, predictions_hard))
@@ -35,7 +37,7 @@ def accuracy(gts, predictions, predictions_hard=None):
     accuracy = torch.sum(correct) / len(correct)
 
     results = {
-        'accuracy': accuracy
+        'accuracy': float(accuracy)
     }
     return results
 

@@ -56,6 +56,7 @@ class IfRaisesDataset(Dataset):
 
         if fraction != 1.0:
             end = int(ceil(len(self.dataset) * fraction))
+            # end = 16
             print('Using {} out of {} dataset samples'.format(end, len(self.dataset)))
             self.dataset = self.dataset[:end]
 
@@ -112,8 +113,9 @@ class IfRaisesDataset(Dataset):
     def __getitem__(self, idx):
         """
         Returns:
-
+        Data sample and its label
         """
+        # idx = 1
         if self.eval_mode:
             return self.getitem_eval(idx)
         # ====================================================
@@ -124,7 +126,6 @@ class IfRaisesDataset(Dataset):
         if isinstance(idx, slice):
             start, stop, step = idx.indices(len(self))
             return (self[i] for i in range(start, stop, step))
-
         elif isinstance(idx, Iterable):
             return (self.__getitem__(i) for i in idx)
         elif not np.issubdtype(type(idx), np.integer):
@@ -150,7 +151,11 @@ class IfRaisesDataset(Dataset):
             cond_str_orig = r(cond_node_orig)
             raise_str_orig = r(raise_node_orig)
 
-        cond_node, raise_node, twist = self.twist_sample(idx, cond_node, raise_node)
+        # force per-example twist
+        fixed_twist = [FLIP_CONDITION, RECOMBINE_COND, RECOMBINE_RAISE][idx % 3]
+        fixed_twist = NO_TWIST if idx % 2 == 0 else fixed_twist
+
+        cond_node, raise_node, twist = self.twist_sample(idx, cond_node, raise_node, force_twist=fixed_twist)
 
         # get str repr
 

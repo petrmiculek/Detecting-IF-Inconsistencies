@@ -10,6 +10,7 @@ from os.path import join
 import json
 from typing import List, Tuple, Dict, Optional
 import zipfile
+from contextlib import suppress
 
 """
 # currently unused
@@ -51,6 +52,7 @@ from src.util import count_parameters
 from src.dataset import IfRaisesDataset, get_dataset_loaders
 from src.model import LSTMBase as LSTM
 from src.eval import compute_metrics, accuracy
+from src.model_util import EarlyStopping
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -62,9 +64,10 @@ parser.add_argument(
 evaluation:
     - accuracy #DONE#
     - confusion matrix #DONE#
+    - eval test set
 
 data:
-    - 
+    - if len(val_dataset) > 0: ...
     
 
 model todo:
@@ -79,7 +82,6 @@ model todo:
         
 """
 
-
 """
 def train_model(model, source):
     pass
@@ -92,47 +94,40 @@ def save_model(model, destination):
 
 
 class ModelTraining:
-    def __init__(self, dataset_path, ds_fraction=0.1):
+    def __init__(self):
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
         """ Dataset and Preprocessing """
-        self.dataset_path = 'shared_resources/dataset_preprocessed_1000.pkl'
-        # dataset_path = config.dataset_preprocessed_path
-        self.dataset_path = dataset_path
+        self.dataset_path = config.dataset_preprocessed_path
 
-        self.tokenizer = load_tokenizer(model_input_len=None)  # config.model_input_len
+        self.tokenizer = load_tokenizer(model_input_len=config.model_input_len)
 
-        self.dataset_fraction = ds_fraction
-        datasets = get_dataset_loaders(dataset_path, self.tokenizer,
+        self.dataset_fraction = config.dataset_fraction
+        self.batch_size = config.HPARS['batch_size']
+        datasets = get_dataset_loaders(self.dataset_path, self.tokenizer,
                                        fraction=self.dataset_fraction,
-                                       batch_size=1, training_split=0.8,
+                                       batch_size=self.batch_size, training_split=config.training_split,
+                                       workers=1
                                        )
         self.train_dataset, self.val_dataset, self.test_dataset = datasets
 
-        """ Model """
-        # todo: put hyperparameters to config
-        self.lr = 1e-3
-        self.batch_size = 1
+        self.lr = config.HPARS['learning_rate']
 
+        """ Model """
         self.init_model()
 
-        self.print_setup()
-
         """ Logging """
-        self.training_losses = []
-
-        wb.init(project="asdl")
+        self.epochs_stats = []
 
         self.training_run_id = datetime.datetime.now().strftime("%m-%d-%H-%M-%S")
-        print(f'Training run ID: {self.training_run_id}')
         self.outputs_dir = join('runs', self.training_run_id)
         os.makedirs(self.outputs_dir, exist_ok=True)
         self.writer = SummaryWriter(self.outputs_dir)
         self.writer.add_text('run_id', self.training_run_id)
 
         self.checkpoint_path = join(self.outputs_dir, f'checkpoint_{self.training_run_id}.pt')
-        # self.early_stopping = EarlyStopping(patience=config.HYPERPARAMETERS['early_stopping_patience'],
-        #                                     verbose=True, path=self.checkpoint_path)
+        self.early_stopping = EarlyStopping(patience=config.HPARS['early_stopping_patience'],
+                                            verbose=True, path=self.checkpoint_path)
 
         wb.config = {
             "run_id": self.training_run_id,
@@ -141,7 +136,14 @@ class ModelTraining:
             "optimizer": str(self.optimizer),
             "dataset_fraction": self.dataset_fraction,
         }
-        wb.watch(self.model, criterion=self.bce_loss, log="all", log_freq=1000)
+        with suppress(UserWarning):
+            wb.init(project="asdl", config=wb.config)
+
+        # unused
+        # wb.watch(self.model, criterion=self.bce_loss, log="all", log_freq=1000)
+
+        print(f'Training run ID: {self.training_run_id}')
+        self.print_setup()
 
     def init_model(self):
         # setting self-variables outside init for clarity and reusability
@@ -167,11 +169,12 @@ class ModelTraining:
         # logging
         epoch_training_loss = np.nan
         epoch_validation_loss = np.nan
+        accu_train = np.nan
+        accu_valid = np.nan
         predictions_train = []
         gts_train = []
         predictions_valid = []
         gts_valid = []
-
 
         # training + validation loop
         from_ = self.epochs_trained
@@ -180,29 +183,19 @@ class ModelTraining:
             epoch_training_losses = []
             epoch_validation_losses = []
 
-            self.chosen_sample = next(iter(self.train_dataset))
-            print(f'Training on sample {self.chosen_sample[1].item()}')
+            # self.chosen_sample = next(iter(self.train_dataset))
+            # print(f'Training on sample {self.chosen_sample[1].item()}')
 
             self.model.train()
             # sample_train = self.train_dataset[0]
-            """
-            todo:
-            
-            2 samples fixed
-            1 sample re-extracted
-            10 samples fixed
-            
-            ditch the padding?
-            
-            """
 
             # one epoch
-            # with tqdm.tqdm(enumerate(self.train_dataset)) as pbar:
             try:
-                with tqdm.tqdm(range(10)) as pbar:
+                # with tqdm.tqdm(range(10)) as pbar:
+                with tqdm.tqdm(enumerate(self.train_dataset)) as pbar:
                     # for i, sample in pbar:
-                    for i in pbar:
-                        x, y = self.chosen_sample
+                    for i, s in pbar:
+                        x, y = s  # self.chosen_sample
                         gts_train.append(y.item())
 
                         x = x.to(device=self.device, dtype=torch.float)
@@ -217,7 +210,6 @@ class ModelTraining:
                         with torch.no_grad():
                             loss_value = loss.item()
                             epoch_training_losses.append(loss_value)
-                            self.training_losses.append(loss_value)
                             predictions_train.append(pred[0].item())
                             pbar.set_postfix(loss=f'{loss_value:.4f}')
 
@@ -250,16 +242,28 @@ class ModelTraining:
             accu_train = accuracy(gts_train, predictions_train)['accuracy']
             accu_valid = accuracy(gts_valid, predictions_valid)['accuracy']
 
+            res = {'Loss Training': epoch_training_loss,
+                   'Loss Validation': epoch_validation_loss,
+                   'Accuracy Training': accu_train,
+                   'Accuracy Validation': accu_valid,
+                   }
+            wb.log(res, step=epoch)
+            self.epochs_stats.append(res)
             self.writer.add_scalars('Loss',
                                     {'train': epoch_training_loss,
                                      'val': epoch_validation_loss
                                      }, epoch)
 
-            wb.log({'Train Loss': epoch_training_loss,
-                    'Valid Loss': epoch_validation_loss,
-                    'Train Acc': accu_train,
-                    'Valid Acc': accu_valid,
-                    }, step=epoch)
+            # early stopping
+            self.early_stopping(epoch_validation_loss, self.model, epoch)
+
+            if self.early_stopping.early_stop:
+                print('Early stopping')
+                break
+
+        self.model.load_state_dict(torch.load(self.checkpoint_path))
+        print(f'Loading checkpoint at epoch {self.early_stopping.best_epoch}\n'
+              f'Best results: {self.epochs_stats[self.early_stopping.best_epoch]}')
 
         self.epochs_trained += epochs
 
@@ -271,7 +275,42 @@ class ModelTraining:
         print(f'Training finished in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s.')
         print(f'Trained epochs: {self.epochs_trained}\n'
               f'{epoch_training_loss=:.3f}\n'
-              f'{epoch_validation_loss=:.3f}')
+              f'{epoch_validation_loss=:.3f}\n'
+              f'{accu_train=:.3f}\n'
+              f'{accu_valid=:.3f}'
+              )
+
+    def test_model(self):
+        gts = []
+        predictions = []
+        losses = []
+
+        self.model.eval()
+
+        with torch.no_grad():
+            with tqdm.tqdm(enumerate(self.test_dataset)) as pbar:
+                for i, sample in pbar:
+                    x, y = sample
+                    gts.append(y)
+
+                    x = x.to(device=self.device, dtype=torch.float)
+                    y = y.to(device=self.device, dtype=torch.float)
+                    pred = self.model(x)
+                    loss = self.bce_loss(pred[0], y)
+
+                    # logging
+                    loss_value = loss.item()
+                    losses.append(loss_value)
+                    predictions.append(pred[0].item())
+
+                    pbar.set_postfix(loss=f'{loss_value:.4f}')
+
+        loss = np.nanmean(losses)
+        accu = accuracy(gts, predictions)['accuracy']
+        print(f'Loss: {loss=:.3f}\n'
+              f'Accuracy: {accu=:.3f}'
+              )
+
 
     def save_model(self, path):
         """
@@ -292,10 +331,17 @@ if __name__ == "__main__":
     # incon = 'shared_resources/real_test_for_milestone3/real_inconsistent.json'
     # dataset_path = 'shared_resources/dataset_preprocessed_1000.pkl'
 
-    model_training = ModelTraining(dataset_path=args.source)
+    # config.dataset_preprocessed_path = args.source
 
-    model_training.train_model(epochs=20)
+    model_training = ModelTraining()
+
+    model_training.train_model(epochs=1)  # config.HPARS['epochs'])
     model_training.save_model(args.destination)
+    """
+    
+    plt.plot(model_training.training_losses); plt.show()
+    
+    """
 
 # if __name__ == '__main__':
 #     main()
