@@ -1,7 +1,7 @@
 # Global config module
 
 # Tokenization
-model_input_len = 256
+model_input_len = 32  # 256
 use_padding = True if model_input_len is not None else False
 
 """ Paths """
@@ -40,8 +40,8 @@ inconsistent = 1.0
 
 # Model hyperparameters
 HPARS = {
-    'batch_size': 1,
-    'epochs': 10,
+    'batch_size': 8,
+    'epochs': 100,
     'learning_rate': 1e-3,
     # 'weight_decay': 1e-3,
 
@@ -49,7 +49,7 @@ HPARS = {
     # 'lr_scheduler_min_lr': 1e-6,
     # 'lr_scheduler_factor': 0.5,
 
-    'early_stopping_patience': 10,
+    'early_stopping_patience': 100,
 }
 
 """
@@ -59,4 +59,8 @@ twists = {
     'negation': True,
 
 }
+
+
+
+
 """

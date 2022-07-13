@@ -193,6 +193,8 @@ class IfRaisesDataset(Dataset):
 
         tokens_both = tokens_cond.tokens + tokens_raise.tokens[1:]  # skip start token for 'sentence 2'
         embeds = self.embed_model.wv[tokens_both]
+        # <s> cond </s> [pad] raise </s> [pad]
+
         # embeddings.append(token_embeds)
         # embeds_raise = embed_model.wv[tokens_raise.tokens]
 
@@ -299,6 +301,13 @@ def get_dataset_loaders(path, tokenizer,
     :param eval_mode:
     :return:
     """
+
+    if eval_mode:
+        fraction = 1.0
+        training_split = 1.0
+        shuffle = False
+        random = False
+        ddp = False
 
     test_split = validation_split = (1 - training_split) / 2
 

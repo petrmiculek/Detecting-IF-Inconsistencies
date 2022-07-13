@@ -137,6 +137,22 @@ def load_model(source):
     return model
 
 
+# def load_bert(source):
+#
+#     CODEBERTA_LANGUAGE_ID = "huggingface/CodeBERTa-language-id"
+#
+#     from transformers import RobertaTokenizer
+#     from transformers import RobertaForSequenceClassification
+#     tokenizer = RobertaTokenizer.from_pretrained(CODEBERTA_LANGUAGE_ID)
+#     model = RobertaForSequenceClassification.from_pretrained(CODEBERTA_LANGUAGE_ID)
+#
+#     input_ids = tokenizer.encode(CODE_TO_IDENTIFY)
+#     logits = model(input_ids)[0]
+#
+#     language_idx = logits.argmax()
+#     return language_idx
+#     # todo try
+
 def write_predictions(destination, predictions):
     """
     Write predictions to file

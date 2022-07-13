@@ -7,9 +7,12 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 def compute_metrics(gts, predictions):
+    # todo choose where to concat list into tensor
+    gts = torch.cat(gts)
+    predictions = torch.cat(predictions)
 
     # todo unified call for evaluation
-    predictions_hard = np.array([1 if x >= 0.5 else 0 for x in predictions])
+    predictions_hard = torch.tensor([1 if x >= 0.5 else 0 for x in predictions])
 
     print(classification_report(gts, predictions_hard))
 
@@ -29,15 +32,20 @@ def accuracy(gts, predictions, predictions_hard=None):
     :param predictions: predictions
     :param predictions_hard: prediction decisions
     """
-    if predictions_hard is None:
-        predictions_hard = torch.tensor([1 if x >= 0.5 else 0 for x in predictions])
+    if type(gts) == list:
+        gts = torch.cat(gts).cpu()
+        predictions = torch.cat(predictions).cpu()
 
-    correct = predictions_hard == torch.tensor(gts)
+    if predictions_hard is None:
+        # predictions_hard = torch.tensor([1 if x >= 0.5 else 0 for x in predictions])
+        predictions_hard = (predictions >= 0.5)
+
+    correct = predictions_hard == gts
 
     accuracy = torch.sum(correct) / len(correct)
 
     results = {
-        'accuracy': float(accuracy)
+        'accuracy': accuracy.item()
     }
     return results
 

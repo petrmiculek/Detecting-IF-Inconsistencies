@@ -70,3 +70,9 @@ def count_parameters(model):
     print(f"Total Trainable Params: {total_params}")
 
     return total_params
+
+
+def get_dict(obj):
+    return {key: value for key, value
+            in obj.__dict__.items()
+            if not key.startswith('_')}
