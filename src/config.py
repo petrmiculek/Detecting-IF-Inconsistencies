@@ -9,10 +9,10 @@ use_padding = True if model_input_len is not None else False
 fasttext_path = 'shared_resources/pretrained_fasttext/embed_if_32.mdl'
 
 """ Dataset """
-# dataset_preprocessed_path = 'shared_resources/dataset_preprocessed.pkl'
+dataset_preprocessed_path = 'shared_resources/dataset_preprocessed.pkl'
 
 # subset for early development
-dataset_preprocessed_path = 'shared_resources/dataset_preprocessed_1000.pkl'
+# dataset_preprocessed_path = 'shared_resources/dataset_preprocessed_1000.pkl'
 
 # unused
 # dataset_tokenized_path = 'shared_resources/dataset_tokenized.npy'
@@ -30,7 +30,7 @@ model_weights_path = 'shared_resources/model_weights.pt'
 
 model = {
     'input_size': embedding_dim,
-    'hidden_size': 128,
+    'hidden_size': 256,
     'output_size': 1
 }
 
@@ -40,8 +40,8 @@ inconsistent = 1.0
 
 # Model hyperparameters
 HPARS = {
-    'batch_size': 8,
-    'epochs': 100,
+    'batch_size': 64,
+    'epochs': 10,
     'learning_rate': 1e-3,
     # 'weight_decay': 1e-3,
 
@@ -49,16 +49,16 @@ HPARS = {
     # 'lr_scheduler_min_lr': 1e-6,
     # 'lr_scheduler_factor': 0.5,
 
-    'early_stopping_patience': 100,
+    'early_stopping_patience': 7,
+}
+
+twists = {
+    'recombination': True,
+    'flip_condition': True,
 }
 
 """
 # unused
-twists = {
-    'recombination': True,
-    'negation': True,
-
-}
 
 
 

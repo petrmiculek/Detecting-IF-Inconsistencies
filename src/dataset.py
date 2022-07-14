@@ -75,6 +75,20 @@ class IfRaisesDataset(Dataset):
         self.eval_mode = eval_mode
         self.triplet_mode = False
 
+        self.twists = []
+        self.twists_probs = []
+        if config.twists['recombination']:
+            self.twists.append(RECOMBINE_COND)
+            self.twists.append(RECOMBINE_RAISE)
+            self.twists_probs.append(0.5)
+            self.twists_probs.append(0.5)
+        if config.twists['flip_condition']:
+            self.twists.append(FLIP_CONDITION)
+            self.twists_probs.append(1)
+
+        # normalize probabilities
+        self.twists_probs = list(np.array(self.twists_probs) / np.sum(self.twists_probs))
+
     def __len__(self):
         return len(self.dataset)
 
@@ -122,14 +136,6 @@ class IfRaisesDataset(Dataset):
         if self.triplet_mode:
             return self.getitem_triplet(idx)
         # ====================================================
-
-        if isinstance(idx, slice):
-            start, stop, step = idx.indices(len(self))
-            return (self[i] for i in range(start, stop, step))
-        elif isinstance(idx, Iterable):
-            return (self.__getitem__(i) for i in idx)
-        elif not np.issubdtype(type(idx), np.integer):
-            return TypeError('Invalid index type')
 
         sample = self.dataset.iloc[idx]  # recombination here
 
@@ -203,9 +209,9 @@ class IfRaisesDataset(Dataset):
         else:
             target = config.inconsistent
 
+        # NotImplementedError cannot be inconsistent, overwrite label
         with suppress(AttributeError):
             if raise_node.exc.func.value == 'NotImplementedError':
-                # NotImplementedError cannot be inconsistent, overwrite label
                 target = config.consistent
         with suppress(AttributeError):
             if raise_node.exc.value.value == 'NotImplementedError':
@@ -224,8 +230,7 @@ class IfRaisesDataset(Dataset):
         """
         if force_twist is None:
             twist_enable = np.random.choice([DO_NOTHING, DO_TWIST])
-            twist = np.random.choice([FLIP_CONDITION, RECOMBINE_COND, RECOMBINE_RAISE],
-                                     p=[0.5, 0.25, 0.25])
+            twist = np.random.choice(self.twists, p=self.twists_probs)
         else:
             twist_enable = DO_NOTHING if force_twist == DO_NOTHING else DO_TWIST
             twist = force_twist

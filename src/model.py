@@ -13,9 +13,9 @@ class LSTMBase(nn.Module):
         self.batch_size = 1
         self.tokens_length = tokens_length
 
-        self.lstm = nn.LSTM(self.input_size, self.hidden_size, num_layers=1, bidirectional=False, batch_first=True)
+        self.lstm = nn.LSTM(self.input_size, self.hidden_size, num_layers=1, bidirectional=True, batch_first=True)
         self.flatten = nn.Flatten()
-        self.fc1 = nn.Linear(self.hidden_size * tokens_length, self.fc_size)
+        self.fc1 = nn.Linear(self.hidden_size * tokens_length * 2, self.fc_size)
         self.dropout1 = nn.Dropout(p=0.5)
         self.relu = nn.ReLU()
         self.fc2 = nn.Linear(self.fc_size, self.output_size)

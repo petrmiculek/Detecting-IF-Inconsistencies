@@ -57,7 +57,7 @@ args_global = None
 evaluation:
     - accuracy #DONE#
     - confusion matrix #DONE#
-    - eval test set
+    - eval test set #DONE#
 
 data:
     - train on full dataset
@@ -70,7 +70,7 @@ model todo:
     - add bidirectional lstm
     - batch size
     - amp scaler - 16bit training
-    - early stopping
+    - early stopping #DONE#
     - lr scheduler/decay
     - add dropout
         
@@ -160,16 +160,8 @@ class ModelTraining:
                               tokens_length=(2 * config.model_input_len - 1))
         self.model.cuda()
         self.bce_loss = nn.BCELoss()
-        self.optimizer = optim.Adam(self.model.parameters())  # lr=self.lr
+        self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
 
-    def print_setup(self):
-        print(self.model)
-        count_parameters(self.model)
-        if self.device.type == 'cuda':
-            print(torch.cuda.get_device_name(0))
-            print('Memory Usage:')
-            print('Allocated:', round(torch.cuda.memory_allocated(0) / 1024 ** 3, 1), 'GB')
-            print('Cached:   ', round(torch.cuda.memory_reserved(0) / 1024 ** 3, 1), 'GB')
 
     def pred_sample(self, sample):
         """
@@ -183,6 +175,7 @@ class ModelTraining:
             pred = self.model(x)
         return pred
 
+    # debugging
     def pred_lstm(self, sample):
         with torch.no_grad():
             x, y = sample  # self.chosen_sample
@@ -211,7 +204,7 @@ class ModelTraining:
             for i, s in tqdm.tqdm(enumerate(dataset)):
                 with torch.no_grad():
                     x, _, line = s
-                    x = torch.tensor(x).to(self.device)
+                    x = x.to(device=self.device)
                     pred = self.model(x)
                     predictions.append(pred)
 
@@ -226,51 +219,46 @@ class ModelTraining:
 
         accuracy_consistent = accuracy(gts_cons, preds_cons)['accuracy']
         accuracy_inconsistent = accuracy(gts_incons, preds_incons)['accuracy']
-        print(f'Accuracy consistent: {accuracy_consistent:.2f}')
-        print(f'Accuracy inconsistent: {accuracy_inconsistent:.2f}')
+        print(f'Accuracy consistent: {accuracy_consistent:.4f}')
+        print(f'Accuracy inconsistent: {accuracy_inconsistent:.4f}')
 
         loss_cons = self.bce_loss(preds_cons, gts_cons).item()
         loss_incons = self.bce_loss(preds_incons, gts_incons).item()
         loss = 0.5 * (loss_cons + loss_incons)
-        print(f'Loss consistent: {loss_cons:.2f}')
-        print(f'Loss inconsistent: {loss_incons:.2f}')
-        print(f'Loss average: {loss:.2f}')
+        print(f'Loss consistent: {loss_cons:.4f}')
+        print(f'Loss inconsistent: {loss_incons:.4f}')
+        print(f'Loss average: {loss:.4f}')
         self.model.test_mode = False
-        return {'accuracy_consistent_real_test': accuracy_consistent,
-                'accuracy_inconsistent_real_test': accuracy_inconsistent,
-                'loss_real_test': loss}
+        return {'Accuracy Consistent Real Test': accuracy_consistent,
+                'Accuracy Inconsistent Real Test': accuracy_inconsistent,
+                'Loss Real Test': loss}
 
-    def train_model(self, epochs=20):
+    def train_model(self, epochs=1):
         start_time = time.time()
         print('Training starts...')
-
-        # logging
-        epoch_training_loss = np.nan
-        epoch_validation_loss = np.nan
-        accu_train = np.nan
-        accu_valid = np.nan
-        predictions_train = []
-        gts_train = []
-        predictions_valid = []
-        gts_valid = []
 
         # training + validation loop
         from_ = self.epochs_trained
         to_ = self.epochs_trained + epochs
-        for epoch in range(from_, to_):
-            epoch_training_losses = []
-            epoch_validation_losses = []
+        try:
+            for epoch in range(from_, to_):
+                # logging
+                epoch_training_losses = []
+                epoch_validation_losses = []
+                predictions_train = []
+                gts_train = []
+                predictions_valid = []
+                gts_valid = []
 
-            # self.chosen_sample = next(iter(self.train_dataset))
-            # print(f'Training on sample {self.chosen_sample[1].item()}')
+                # self.chosen_sample = next(iter(self.train_dataset))
+                # print(f'Training on sample {self.chosen_sample[1].item()}')
 
-            self.model.train()
-            # sample_train = self.train_dataset[0]
+                self.model.train()
+                # sample_train = self.train_dataset[0]
 
-            # one epoch
-            try:
-                # with tqdm.tqdm(range(10)) as pbar:
+                # one epoch
                 with tqdm.tqdm(enumerate(self.train_dataset)) as pbar:
+                    print(f'Epoch {epoch}:')
                     # for i, sample in pbar:
                     for i, s in pbar:
                         x, y = s  # self.chosen_sample
@@ -280,8 +268,8 @@ class ModelTraining:
                         x = x.to(device=self.device, dtype=torch.float)
                         y = y.to(device=self.device, dtype=torch.float)
                         self.model.zero_grad()
-                        pred = self.model(x)
-                        loss = self.bce_loss(pred[:, 0], y)
+                        pred = self.model(x)[:, 0]
+                        loss = self.bce_loss(pred, y)
                         loss.backward()
                         self.optimizer.step()
 
@@ -289,87 +277,84 @@ class ModelTraining:
                         with torch.no_grad():
                             loss_value = loss.item()
                             epoch_training_losses.append(loss_value)
-                            predictions_train.append(pred[:, 0])
+                            predictions_train.append(pred)
                             pbar.set_postfix(loss=f'{loss_value:.4f}')
 
-            except KeyboardInterrupt:
-                print('Stopped training through KeyboardInterrupt')
+                self.model.eval()
 
-            self.model.eval()
+                with torch.no_grad():
+                    with tqdm.tqdm(enumerate(self.val_dataset)) as pbar:
+                        for i, sample in pbar:
+                            x, y = sample
+                            gts_valid.append(y)
 
-            with torch.no_grad():
-                with tqdm.tqdm(enumerate(self.val_dataset)) as pbar:
-                    for i, sample in pbar:
-                        x, y = sample
-                        gts_valid.append(y)
+                            x = x.to(device=self.device, dtype=torch.float)
+                            y = y.to(device=self.device, dtype=torch.float)
+                            pred = self.model(x)[:, 0]
+                            loss = self.bce_loss(pred, y)
 
-                        x = x.to(device=self.device, dtype=torch.float)
-                        y = y.to(device=self.device, dtype=torch.float)
-                        pred = self.model(x)
-                        loss = self.bce_loss(pred[:, 0], y)
+                            # logging
+                            loss_value = loss.item()
+                            epoch_validation_losses.append(loss_value)
+                            predictions_valid.append(pred)
 
-                        # logging
-                        loss_value = loss.item()
-                        epoch_validation_losses.append(loss_value)
-                        predictions_valid.append(pred[:, 0])
+                            pbar.set_postfix(loss=f'{loss_value:.4f}')
 
-                        pbar.set_postfix(loss=f'{loss_value:.4f}')
+                # logging
+                loss_training = np.nanmean(epoch_training_losses)
+                loss_validation = np.nanmean(epoch_validation_losses)
+                accu_train = accuracy(gts_train, predictions_train)['accuracy']
+                accu_valid = accuracy(gts_valid, predictions_valid)['accuracy']
 
-            # logging
-            epoch_training_loss = np.nanmean(epoch_training_losses)
-            epoch_validation_loss = np.nanmean(epoch_validation_losses)
-            accu_train = accuracy(gts_train, predictions_train)['accuracy']
-            accu_valid = accuracy(gts_valid, predictions_valid)['accuracy']
+                res = {'Loss Training': loss_training,
+                       'Loss Validation': loss_validation,
+                       'Accuracy Training': accu_train,
+                       'Accuracy Validation': accu_valid,
+                       }
+                wb.log(res, step=epoch)
+                self.epochs_stats.append(res)
+                self.writer.add_scalars('Loss',
+                                        {'train': loss_training,
+                                         'val': loss_validation
+                                         }, epoch)
 
-            res = {'Loss Training': epoch_training_loss,
-                   'Loss Validation': epoch_validation_loss,
-                   'Accuracy Training': accu_train,
-                   'Accuracy Validation': accu_valid,
-                   }
-            wb.log(res, step=epoch)
-            self.epochs_stats.append(res)
-            self.writer.add_scalars('Loss',
-                                    {'train': epoch_training_loss,
-                                     'val': epoch_validation_loss
-                                     }, epoch)
-            # if epoch % 5 == 0:
-            #     print(pred[:, 0])
+                # early stopping
+                self.early_stopping(loss_validation, self.model, epoch)
 
-            # early stopping
-            self.early_stopping(epoch_validation_loss, self.model, epoch)
+                if self.early_stopping.early_stop:
+                    print('Early stopping')
+                    break
 
-            if self.early_stopping.early_stop:
-                print('Early stopping')
-                break
+        except KeyboardInterrupt:
+            print('Stopped training through KeyboardInterrupt')
 
         # logging
         time_elapsed = time.time() - start_time
 
         print(f'Training finished in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s.')
-        print(f'Trained epochs: {self.epochs_trained}\n'
-              f'{epoch_training_loss=:.3f}\n'
-              f'{epoch_validation_loss=:.3f}\n'
-              f'{accu_train=:.3f}\n'
-              f'{accu_valid=:.3f}'
-              )
+        print('Last epoch results:')
+        for key, value in self.epochs_stats[-1].items():
+            print(f'\t{key}: {value:.4f}')
 
         # load best model checkpoint
         self.model.load_state_dict(torch.load(self.checkpoint_path))
         print(f'Loading checkpoint at epoch {self.early_stopping.best_epoch}\n'
               f'Checkpoint results:')
 
-        # logging
-        self.best_results = self.epochs_stats[self.early_stopping.best_epoch].items()
-        for key, value in self.best_results:
+        # best epoch results (checkpoint)
+        self.best_results = self.epochs_stats[self.early_stopping.best_epoch]
+        for key, value in self.best_results.items():
             print(f'\t{key}: {value:.4f}')
-
-        try:
-            wb.log(self.best_results)
-        except Exception as e:
-            print(e)
+        
+        # logging
+        wb.log(self.best_results)
 
         self.epochs_trained += epochs
 
+        # evaluate on test set
+        self.test_results = self.eval_test()
+        wb.log(self.test_results)
+        
         # evaluate on real test data
         real_test_results = self.eval_real_test()
         wb.log(real_test_results, step=self.epochs_trained)
@@ -377,7 +362,7 @@ class ModelTraining:
         self.writer.flush()
         self.writer.close()
 
-    def test_model(self):
+    def eval_test(self):
         """
         Test the model on the test set.
 
@@ -397,21 +382,24 @@ class ModelTraining:
 
                     x = x.to(device=self.device, dtype=torch.float)
                     y = y.to(device=self.device, dtype=torch.float)
-                    pred = self.model(x)
-                    loss = self.bce_loss(pred[0], y)
+                    pred = self.model(x)[:, 0]
+                    loss = self.bce_loss(pred, y)
 
                     # logging
                     loss_value = loss.item()
                     losses.append(loss_value)
-                    predictions.append(pred[0].item())
+                    predictions.append(pred)
 
                     pbar.set_postfix(loss=f'{loss_value:.4f}')
 
         loss = np.nanmean(losses)
         accu = accuracy(gts, predictions)['accuracy']
-        print(f'Loss: {loss=:.3f}\n'
-              f'Accuracy: {accu=:.3f}'
+        print(f'Test set results:\n'
+              f'Loss: {loss:.4f}\n'
+              f'Accuracy: {accu:.4f}'
               )
+        return {'Loss Test': loss,
+                'Accuracy Test': accu}
 
     def save_model(self, path):
         """
@@ -420,14 +408,29 @@ class ModelTraining:
         torch.save(self.model.state_dict(), path)
         print(f'Model saved to "{path}"')
 
+    def print_setup(self):
+        print(self.model)
+        count_parameters(self.model)
+        if self.device.type == 'cuda':
+            print(torch.cuda.get_device_name(0))
+            print('Memory Usage:')
+            print('Allocated:', round(torch.cuda.memory_allocated(0) / 1024 ** 3, 1), 'GB')
+            print('Cached:   ', round(torch.cuda.memory_reserved(0) / 1024 ** 3, 1), 'GB')
+
+
 
 def balance(dataset):
     ys = []
-    for s in dataset:
+    for s in tqdm.tqdm(dataset):
+        """
+        real test set:
+        ValueError: too many values to unpack (expected 2)
+        """
+
         x, y = s
         ys.append(y)
     ys = torch.cat(ys)
-    return torch.mean(ys)
+    return float(torch.mean(ys))
 
 
 # def main():
@@ -436,6 +439,9 @@ if __name__ == "__main__":
     print(f'Running on device: {device}')
 
     args_global = parser.parse_args()
+    print('Args:\n', get_dict(args_global))
+
+    config.dataset_preprocessed_path = args_global.source
 
     # con = 'shared_resources/real_test_for_milestone3/real_consistent.json'
     # incon = 'shared_resources/real_test_for_milestone3/real_inconsistent.json'
@@ -459,6 +465,16 @@ if __name__ == "__main__":
 
     """
     
+    # dataset stats
+    balance_train = balance(model_training.train_dataset)
+    balance_val = balance(model_training.val_dataset)
+    balance_test = balance(model_training.test_dataset)
+    print(f'Balance train: {balance_train:.4f}\n'
+          f'Balance val:   {balance_val:.4f}\n'
+          f'Balance test:  {balance_test:.4f}\n')
+    wb.log({'balance_train': balance_train, 'balance_val': balance_val, 'balance_test': balance_test})
+
+
     plt.plot(model_training.training_losses); plt.show()
 
     print('Training Dataset Balance', )
