@@ -19,7 +19,7 @@ from torch.utils.data import Dataset, Subset, random_split, DataLoader
 # local
 from src import config
 from src.extract import load_segments, extract_raises
-from src.preprocess import rebuild_cond, negate_cond, load_tokenizer
+from src.preprocess import rebuild_cond, negate_cond, load_tokenizer, tokenize
 from src.util import real_len, r
 
 # twist_enable - whether to twist
@@ -106,18 +106,30 @@ class IfRaisesDataset(Dataset):
         else:
             cond_node = rebuild_cond(cond_node, parentheses=False)
 
+        tokens = self.nodes_to_tokens(cond_node, raise_node, context_str)
+        target = config.consistent  # watch out when loading real data
+
+        return tokens, target, line_raise
+
+    def nodes_to_tokens(self, cond_node, raise_node, context_str):
         cond_str = r(cond_node)
         raise_str = r(raise_node)
 
-        tokens_cond = self.tokenizer.encode(cond_str)
-        tokens_raise = self.tokenizer.encode(raise_str)
+        # unused - old approach
+        # tokens_cond = self.tokenizer.encode(cond_str)
+        # tokens_raise = self.tokenizer.encode(raise_str)
+        # tokens_both = tokens_cond.tokens + tokens_raise.tokens[1:]  # skip start token for 'sentence 2'
 
-        tokens_both = tokens_cond.tokens + tokens_raise.tokens[1:]  # skip start token for 'sentence 2'
-        embeds = self.embed_model.wv[tokens_both]
+        tokens_cond = tokenize(self.tokenizer, cond_str,
+                               max_len=config.tokens_length_unit, truncate='right')
+        tokens_raise = tokenize(self.tokenizer, raise_str,
+                                max_len=config.tokens_length_unit, truncate='right')
+        tokens_context_pre = tokenize(self.tokenizer, context_str,
+                                      max_len=config.tokens_length_unit, truncate='first_last')
+        tokens = tokens_cond + tokens_raise + tokens_context_pre  # WHEN CHANGING THIS SET `config.model_input_len`
+        embeds = self.embed_model.wv[tokens]
 
-        target = config.consistent  # watch out when loading
-
-        return embeds, target, line_raise
+        return embeds
 
     def getitem_triplet(self, idx):
         idx2, idx3 = np.random.randint(0, self.ds_len - 1, size=2)
@@ -158,17 +170,12 @@ class IfRaisesDataset(Dataset):
             raise_str_orig = r(raise_node_orig)
 
         # force per-example twist
-        fixed_twist = [FLIP_CONDITION, RECOMBINE_COND, RECOMBINE_RAISE][idx % 3]
-        fixed_twist = NO_TWIST if idx % 2 == 0 else fixed_twist
+        # fixed_twist = [FLIP_CONDITION, RECOMBINE_COND, RECOMBINE_RAISE][idx % 3]
+        # fixed_twist = NO_TWIST if idx % 2 == 0 else fixed_twist
 
-        cond_node, raise_node, twist = self.twist_sample(idx, cond_node, raise_node, force_twist=fixed_twist)
-
-        # get str repr
-
-        cond_str = r(cond_node)
-        raise_str = r(raise_node)
-
-        # full_str = " ".join([cond_str, self.sep_token_str, raise_str])
+        cond_node, raise_node, twist = self.twist_sample(idx, cond_node, raise_node,
+                                                         # force_twist=fixed_twist
+                                                         )
 
         # debug
         if self.human_eval:
@@ -177,32 +184,15 @@ class IfRaisesDataset(Dataset):
             print(context_str)
             print('v' * 7)
             print(orig)
-            # human_pred = int(input())
-            # self.human_preds.append(human_pred)
+            human_pred = float(input())
+            self.human_preds.append(human_pred)
             self.human_gt.append(twist)
             print(res)
             print(f"<<{twist}>>")
             print('=' * 10)
-            _ = input()
+            # _ = input()
 
-        tokens_cond = self.tokenizer.encode(cond_str)
-        tokens_raise = self.tokenizer.encode(raise_str)
-        # tokens_context = tokenizer.encode(context_str)
-
-        # tokens_all = self.tokenizer.encode(full_str)
-
-        # lengths.append({
-        #     'cond': real_len(tokens_cond),
-        #     'raise': real_len(tokens_raise),
-        #     'all': real_len(tokens_all)
-        # })
-
-        tokens_both = tokens_cond.tokens + tokens_raise.tokens[1:]  # skip start token for 'sentence 2'
-        embeds = self.embed_model.wv[tokens_both]
-        # <s> cond </s> [pad] raise </s> [pad]
-
-        # embeddings.append(token_embeds)
-        # embeds_raise = embed_model.wv[tokens_raise.tokens]
+        tokens = self.nodes_to_tokens(cond_node, raise_node, context_str)
 
         if twist == NO_TWIST:
             target = config.consistent
@@ -217,7 +207,7 @@ class IfRaisesDataset(Dataset):
             if raise_node.exc.value.value == 'NotImplementedError':
                 target = config.consistent
 
-        return embeds, target
+        return tokens, target
 
     def twist_sample(self, idx, cond_node, raise_node, force_twist=None):
         """

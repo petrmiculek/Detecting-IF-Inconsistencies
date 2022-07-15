@@ -4,7 +4,9 @@ import torch
 import pandas as pd
 from sklearn.metrics import confusion_matrix as conf_mat, classification_report
 import seaborn as sns
-import matplotlib.pyplot as plt
+from matplotlib import pyplot as plt
+from sklearn.metrics import roc_curve, RocCurveDisplay, auc
+
 
 def compute_metrics(gts, predictions):
     # todo choose where to concat list into tensor
@@ -96,3 +98,13 @@ def confusion_matrix(gts, predictions_hard, output_location=None, show=True, val
     plt.close(fig_cm.figure)
 
 
+def plot_roc_curve(gts, predictions, _, show=True, output_location=None):
+
+    fpr, tpr, thresholds = roc_curve(gts, predictions)
+    roc_auc = auc(fpr, tpr)
+    display = RocCurveDisplay(fpr=fpr, tpr=tpr, roc_auc=roc_auc, estimator_name='example estimator')
+    display.plot()
+    if show:
+        plt.show()
+    if output_location is not None:
+        plt.savefig(join(output_location, 'roc_curve.svg'), bbox_inches='tight')

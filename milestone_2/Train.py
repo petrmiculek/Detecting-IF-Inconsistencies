@@ -60,19 +60,18 @@ evaluation:
     - eval test set #DONE#
 
 data:
-    - train on full dataset
-    - if len(val_dataset) > 0: ...
+    - train on full dataset  #DONE#
+    - if len(val_dataset) > 0: ... rejected
     
-
 model todo:
     
     (once basic training works)
-    - add bidirectional lstm
-    - batch size
-    - amp scaler - 16bit training
+    - add bidirectional lstm  #DONE#
+    - batch size  #DONE#
+    - amp scaler - 16bit training  #DONE#
     - early stopping #DONE#
-    - lr scheduler/decay
-    - add dropout
+    - lr scheduler/decay  #DONE#
+    - add dropout #DONE#
         
 """
 
@@ -94,7 +93,7 @@ class ModelTraining:
         """ Dataset and Preprocessing """
         self.dataset_path = config.dataset_preprocessed_path
 
-        self.tokenizer = load_tokenizer(model_input_len=config.model_input_len)
+        self.tokenizer = load_tokenizer(tokens_length=config.tokens_length_unit)
 
         self.dataset_fraction = config.dataset_fraction
         self.batch_size = config.HPARS['batch_size']
@@ -123,6 +122,14 @@ class ModelTraining:
         self.checkpoint_path = join(self.outputs_dir, f'checkpoint_{self.training_run_id}.pt')
         self.early_stopping = EarlyStopping(patience=config.HPARS['early_stopping_patience'],
                                             verbose=True, path=self.checkpoint_path)
+
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer,
+                                                              verbose=True,
+                                                              patience=config.HPARS['lr_scheduler_patience'],
+                                                              min_lr=config.HPARS['lr_scheduler_min_lr'],
+                                                              factor=config.HPARS['lr_scheduler_factor'])
+
+        self.scaler = torch.cuda.amp.GradScaler()
 
         wb.config = {
             "run_id": self.training_run_id,
@@ -157,9 +164,11 @@ class ModelTraining:
         # setting self-variables outside init for clarity and reusability
         self.epochs_trained = 0
         self.model = LSTMBase(config.embedding_dim, config.model['hidden_size'],
-                              tokens_length=(2 * config.model_input_len - 1))
+                              tokens_length=config.model_input_len)
         self.model.cuda()
-        self.bce_loss = nn.BCELoss()
+        # self.bce_loss = nn.BCELoss()
+        self.bce_loss = nn.BCEWithLogitsLoss()
+
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
 
 
@@ -172,7 +181,7 @@ class ModelTraining:
             x, y = sample  # self.chosen_sample
             x = x.to(device=self.device, dtype=torch.float)
             y = y.to(device=self.device, dtype=torch.float)
-            pred = self.model(x)
+            pred = self.model.predict(x)
         return pred
 
     # debugging
@@ -195,7 +204,7 @@ class ModelTraining:
         if self.test_dataset is None:
             print('No test dataset found.')
             return
-        print('Evaluating model on test set...')
+        print('Evaluating model on real data:')
         self.model.eval()
         self.model.test_mode = True
 
@@ -205,7 +214,7 @@ class ModelTraining:
                 with torch.no_grad():
                     x, _, line = s
                     x = x.to(device=self.device)
-                    pred = self.model(x)
+                    pred = self.model.predict(x)
                     predictions.append(pred)
 
             preds = torch.cat(predictions, dim=0).cpu()
@@ -257,21 +266,28 @@ class ModelTraining:
                 # sample_train = self.train_dataset[0]
 
                 # one epoch
-                with tqdm.tqdm(enumerate(self.train_dataset)) as pbar:
-                    print(f'Epoch {epoch}:')
+                print(f'\nEpoch {epoch}:')
+                with tqdm.tqdm(self.train_dataset, leave=False) as pbar:
+                    i = 0
                     # for i, sample in pbar:
-                    for i, s in pbar:
+                    for s in pbar:
                         x, y = s  # self.chosen_sample
                         with torch.no_grad():
                             gts_train.append(y)
 
                         x = x.to(device=self.device, dtype=torch.float)
                         y = y.to(device=self.device, dtype=torch.float)
-                        self.model.zero_grad()
-                        pred = self.model(x)[:, 0]
-                        loss = self.bce_loss(pred, y)
-                        loss.backward()
-                        self.optimizer.step()
+
+                        with torch.cuda.amp.autocast():
+                            pred = self.model(x)[:, 0]
+                            loss = self.bce_loss(pred, y)
+
+                        self.scaler.scale(loss / 4).backward()  # Calculate the gradients
+
+                        if (i + 1) % 4 == 0:
+                            self.scaler.step(self.optimizer)
+                            self.scaler.update()
+                            self.optimizer.zero_grad()  # Clear all the gradients before calculating them
 
                         # logging
                         with torch.no_grad():
@@ -280,17 +296,20 @@ class ModelTraining:
                             predictions_train.append(pred)
                             pbar.set_postfix(loss=f'{loss_value:.4f}')
 
+                        i += 1
+
+
                 self.model.eval()
 
                 with torch.no_grad():
-                    with tqdm.tqdm(enumerate(self.val_dataset)) as pbar:
-                        for i, sample in pbar:
+                    with tqdm.tqdm(self.val_dataset, leave=False) as pbar:
+                        for sample in pbar:
                             x, y = sample
                             gts_valid.append(y)
 
                             x = x.to(device=self.device, dtype=torch.float)
                             y = y.to(device=self.device, dtype=torch.float)
-                            pred = self.model(x)[:, 0]
+                            pred = self.model.predict(x)[:, 0]
                             loss = self.bce_loss(pred, y)
 
                             # logging
@@ -311,12 +330,19 @@ class ModelTraining:
                        'Accuracy Training': accu_train,
                        'Accuracy Validation': accu_valid,
                        }
+
+                print('')  # newline
+                for k, v in res.items():
+                    print(f'{k}: {v:.4f}')
+
                 wb.log(res, step=epoch)
                 self.epochs_stats.append(res)
                 self.writer.add_scalars('Loss',
                                         {'train': loss_training,
                                          'val': loss_validation
                                          }, epoch)
+
+                self.scheduler.step(loss_validation)
 
                 # early stopping
                 self.early_stopping(loss_validation, self.model, epoch)
@@ -357,7 +383,7 @@ class ModelTraining:
         
         # evaluate on real test data
         real_test_results = self.eval_real_test()
-        wb.log(real_test_results, step=self.epochs_trained)
+        wb.log(real_test_results)
 
         self.writer.flush()
         self.writer.close()
@@ -373,6 +399,7 @@ class ModelTraining:
         losses = []
 
         self.model.eval()
+        print('Evaluating model on test subset:')
 
         with torch.no_grad():
             with tqdm.tqdm(enumerate(self.test_dataset)) as pbar:
@@ -382,7 +409,7 @@ class ModelTraining:
 
                     x = x.to(device=self.device, dtype=torch.float)
                     y = y.to(device=self.device, dtype=torch.float)
-                    pred = self.model(x)[:, 0]
+                    pred = self.model.predict(x)[:, 0]
                     loss = self.bce_loss(pred, y)
 
                     # logging

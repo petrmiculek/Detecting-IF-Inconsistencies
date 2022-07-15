@@ -67,28 +67,42 @@ def negate_cond(cond):
         return None
 
 
-def load_tokenizer(model_input_len=None):
+def load_tokenizer(tokens_length=None):
     """
     Loads a tokenizer from a pre-trained model.
-    :param model_input_len: int to pad, None to keep as is
+    :param tokens_length: int to pad, None to keep as is
     """
-    tokenizer = ByteLevelBPETokenizer(
-        "shared_resources/pretrained_tokenizer/py_tokenizer-vocab.json",
-        "shared_resources/pretrained_tokenizer/py_tokenizer-merges.txt",
-    )
+    vocab = "shared_resources/pretrained_tokenizer/py_tokenizer-vocab.json"
+    merges = "shared_resources/pretrained_tokenizer/py_tokenizer-merges.txt"
+    tokenizer = ByteLevelBPETokenizer(vocab, merges)
+
     tokenizer.post_processor = BertProcessing(
         ("</s>", tokenizer.token_to_id("</s>")),
         ("<s>", tokenizer.token_to_id("<s>")),
     )
-    # num_added_toks = tokenizer.add_tokens(['[SEP]'], special_tokens=True)  # his line is updated
 
-    # model.resize_token_embeddings(len(tokenizer))
+    tokenizer.enable_padding(length=tokens_length)
 
-    # The tokenizer has to be saved if it has to be reused
-    # tokenizer.save_pretrained(config.tokenizer_path)
-
-    if model_input_len is not None:
-        tokenizer.enable_truncation(max_length=model_input_len)
-        tokenizer.enable_padding(length=model_input_len)
     return tokenizer
 
+
+def tokenize(tokenizer, text, max_len=None, truncate='right'):
+    tokenized = tokenizer.encode(text).tokens
+
+    if max_len is not None:
+        if truncate == 'left':
+            # keep last max_len tokens
+            # not needed for shorter than max length, but in such case this doesn't do anything
+            tokenized = tokenized[0:1] + tokenized[-(max_len - 1):]
+
+        elif truncate == 'right':
+            # keep first max_len tokens
+            tokenized = tokenized[0:max_len]
+        elif truncate == 'first_last':
+            if len(tokenized) > max_len:
+                tokenized = tokenized[0:max_len // 2] + tokenized[-(max_len // 2):]
+        else:
+            # do nothing
+            pass
+
+    return tokenized

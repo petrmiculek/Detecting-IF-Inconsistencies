@@ -1,8 +1,8 @@
 # Global config module
 
 # Tokenization
-model_input_len = 32  # 256
-use_padding = True if model_input_len is not None else False
+tokens_length_unit = 32  # 256
+model_input_len = 3 * tokens_length_unit  # cond, raise, pre-context
 
 """ Paths """
 # Word Embedding
@@ -12,7 +12,7 @@ fasttext_path = 'shared_resources/pretrained_fasttext/embed_if_32.mdl'
 dataset_preprocessed_path = 'shared_resources/dataset_preprocessed.pkl'
 
 # subset for early development
-# dataset_preprocessed_path = 'shared_resources/dataset_preprocessed_1000.pkl'
+dataset_preprocessed_path = 'shared_resources/dataset_preprocessed_1000.pkl'
 
 # unused
 # dataset_tokenized_path = 'shared_resources/dataset_tokenized.npy'
@@ -30,7 +30,7 @@ model_weights_path = 'shared_resources/model_weights.pt'
 
 model = {
     'input_size': embedding_dim,
-    'hidden_size': 256,
+    'hidden_size': 128,
     'output_size': 1
 }
 
@@ -40,16 +40,16 @@ inconsistent = 1.0
 
 # Model hyperparameters
 HPARS = {
-    'batch_size': 64,
-    'epochs': 10,
+    'batch_size': 32,
+    'epochs': 20,
     'learning_rate': 1e-3,
     # 'weight_decay': 1e-3,
 
-    # 'lr_scheduler_patience': 5,
-    # 'lr_scheduler_min_lr': 1e-6,
-    # 'lr_scheduler_factor': 0.5,
+    'lr_scheduler_patience': 3,
+    'lr_scheduler_min_lr': 1e-5,
+    'lr_scheduler_factor': 0.5,
 
-    'early_stopping_patience': 7,
+    'early_stopping_patience': 5,
 }
 
 twists = {
