@@ -1,7 +1,5 @@
 from os.path import join
-import numpy as np
 import torch
-import pandas as pd
 from sklearn.metrics import confusion_matrix as conf_mat, classification_report
 import seaborn as sns
 from matplotlib import pyplot as plt
@@ -99,6 +97,7 @@ def confusion_matrix(gts, predictions_hard, output_location=None, show=True, val
 
 
 def plot_roc_curve(gts, predictions, show=True, output_location=None):
+    sns.set_context('paper', font_scale=1.8)
 
     fpr, tpr, thresholds = roc_curve(gts, predictions)
     roc_auc = auc(fpr, tpr)
@@ -106,8 +105,11 @@ def plot_roc_curve(gts, predictions, show=True, output_location=None):
     display.plot()
     try:
         if show:
+            plt.title('ROC Curve')
+            plt.tight_layout()
             plt.show()
+
         if output_location is not None:
-            plt.savefig(join(output_location, 'roc_curve.svg'), bbox_inches='tight')
+            plt.savefig(output_location, bbox_inches='tight')
     except Exception as e:
         print('Failed plotting/saving ROC curve\n', e)

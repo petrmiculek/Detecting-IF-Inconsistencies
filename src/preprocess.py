@@ -54,7 +54,7 @@ def negate_cond(cond):
             return cst.Comparison(left=cond.left, comparisons=[target])
         # elif type(cond) == cst.And:
         # todo add DeMorgan's laws
-        elif type(cond) in {cst.Attribute, cst.Call}:
+        elif type(cond) in [cst.Attribute, cst.Call]:
             # don't add parentheses
             return cst.UnaryOperation(operator=cst.Not(), expression=cond)
         else:

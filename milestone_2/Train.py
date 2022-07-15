@@ -3,14 +3,9 @@
 # stdlib
 import argparse
 import datetime
-import time
-from copy import deepcopy as dc
 import os
+import time
 from os.path import join
-import json
-from typing import List, Tuple, Dict, Optional
-import zipfile
-from contextlib import suppress
 
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 
@@ -23,29 +18,22 @@ sys.path.extend(sys_path_extension)
 """
 
 # external
-import matplotlib.pyplot as plt
-import nltk
 import numpy as np
-import pandas as pd
-import seaborn as sns
-import tokenizers
-import tqdm
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import tqdm
 from torch.utils.tensorboard import SummaryWriter
-import wandb as wb
-from transformers import RobertaForSequenceClassification, RobertaTokenizer
 
+import wandb as wb
 # local
 from src import config
-from src.preprocess import negate_cond, rebuild_cond, load_tokenizer
-from src.util import count_parameters, get_dict
-from src.dataset import IfRaisesDataset, get_dataset_loaders
+from src.dataset import get_dataset_loaders
+from src.eval import accuracy, plot_roc_curve
 from src.model import LSTMBase
-from src.eval import compute_metrics, accuracy, plot_roc_curve
-
 from src.model_util import EarlyStopping
+from src.preprocess import load_tokenizer
+from src.util import count_parameters, get_dict
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -54,38 +42,6 @@ parser.add_argument(
     '--destination', help="Path to save your trained model.", required=True)
 
 args_global = None
-"""
-evaluation:
-    - accuracy #DONE#
-    - confusion matrix #DONE#
-    - eval test set #DONE#
-
-data:
-    - train on full dataset  #DONE#
-    - if len(val_dataset) > 0: ... rejected
-    
-model todo:
-    
-    (once basic training works)
-    - add bidirectional lstm  #DONE#
-    - batch size  #DONE#
-    - amp scaler - 16bit training  #DONE#
-    - early stopping #DONE#
-    - lr scheduler/decay  #DONE#
-    - add dropout #DONE#
-        
-"""
-
-"""
-def train_model(model, source):
-    pass
-
-
-def save_model(model, destination):
-    # Save model to destination.
-    torch.save(model.state_dict(), destination)
-"""
-
 
 class ModelTraining:
     def __init__(self):
@@ -185,19 +141,6 @@ class ModelTraining:
             pred = self.model.predict(x)
         return pred
 
-    # debugging
-    def pred_lstm(self, sample):
-        with torch.no_grad():
-            x, y = sample  # self.chosen_sample
-            x = x.to(device=self.device, dtype=torch.float)
-            y = y.to(device=self.device, dtype=torch.float)
-
-            out, (h, c) = self.model.lstm(x)
-
-            # h = h.view(h.size(0), -1)
-
-            return h
-
     def eval_real_test(self):
         """
         Evaluate model on test set
@@ -229,7 +172,7 @@ class ModelTraining:
 
         gts_all = torch.cat([gts_cons, gts_incons]).cpu()
         preds_all = torch.cat([preds_cons, preds_incons]).cpu()
-        plot_roc_curve(gts_all, preds_all, show=False, output_location='results')
+        plot_roc_curve(gts_all, preds_all, show=False, output_location=join('results', f'roc_curve_{self.training_run_id}.svg'))
 
         accuracy_consistent = accuracy(gts_cons, preds_cons)['accuracy']
         accuracy_inconsistent = accuracy(gts_incons, preds_incons)['accuracy']
@@ -477,42 +420,6 @@ if __name__ == "__main__":
 
     config.dataset_preprocessed_path = args_global.source
 
-    # con = 'shared_resources/real_test_for_milestone3/real_consistent.json'
-    # incon = 'shared_resources/real_test_for_milestone3/real_inconsistent.json'
-    # dataset_path = 'shared_resources/dataset_preprocessed_1000.pkl'
-
-    # config.dataset_preprocessed_path = args.source
-
     model_training = ModelTraining()
-    #
     model_training.train_model(epochs=config.HPARS['epochs'])
     model_training.save_model(args_global.destination)
-    #
-    self = model_training
-    s1 = next(iter(model_training.train_dataset))
-    s2 = next(iter(model_training.val_dataset))
-    s3 = next(iter(model_training.test_dataset))
-
-    p1 = model_training.pred_sample(s1)
-    p2 = model_training.pred_sample(s2)
-    p3 = model_training.pred_sample(s3)
-
-    """
-    
-    # dataset stats
-    balance_train = balance(model_training.train_dataset)
-    balance_val = balance(model_training.val_dataset)
-    balance_test = balance(model_training.test_dataset)
-    print(f'Balance train: {balance_train:.4f}\n'
-          f'Balance val:   {balance_val:.4f}\n'
-          f'Balance test:  {balance_test:.4f}\n')
-    wb.log({'balance_train': balance_train, 'balance_val': balance_val, 'balance_test': balance_test})
-
-
-    plt.plot(model_training.training_losses); plt.show()
-
-    print('Training Dataset Balance', )
-    """
-
-# if __name__ == '__main__':
-#     main()

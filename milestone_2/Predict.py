@@ -40,30 +40,22 @@ def predict(model, test_files):
 
     tokenizer = load_tokenizer(config.tokens_length_unit)
 
-    all_outputs = []
-
-    # for test_file in test_files:  # apparently no
     predictions = []
     lines = []
     print('Extracting test data...')
-    dataset, _, _ = get_dataset_loaders(test_files, tokenizer, training_split=1., batch_size=2, eval_mode=True)
+    dataset, _, _ = get_dataset_loaders(test_files, tokenizer, training_split=1., batch_size=1, eval_mode=True)
 
     print('Running predictions...')
     with torch.no_grad():
         for s in tqdm.tqdm(dataset):
             x, _, line = s
+            lines.append(line)
             x = x.to(device=device)
             pred = model.predict(x)[:, 0]
             predictions.append(pred)
-            lines.append(line)
 
     predictions = torch.cat(predictions)
-    predictions_hard = [1 if x >= 0.5 else 0 for x in predictions]
-    lines = list(torch.cat(lines).cpu().numpy().astype(int))
-    output = dict(sorted(zip(lines, predictions_hard)))
-    all_outputs.append(output)
-
-    return all_outputs
+    return predictions, lines
 
 
 def evaluate(model, test_files):
@@ -77,12 +69,10 @@ def evaluate(model, test_files):
 
     all_outputs = []
 
-    # for test_file in test_files:  # apparently no
     predictions = []
     gts = []
     lines = []
     print('Extracting test data...')
-    # dataset = IfRaisesDataset(test_files, tokenizer, fraction=1., eval_mode=True)
     dataset, _, _ = get_dataset_loaders(test_files, tokenizer, training_split=1., batch_size=1, eval_mode=True)
 
     print('Running predictions...')
@@ -106,7 +96,6 @@ def evaluate(model, test_files):
     output = dict(sorted(zip(lines, predictions)))
     all_outputs.append(output)
 
-    # todo test
     compute_metrics(gts, predictions)
 
     print(f'Mean loss: {mean_loss:.4f}')
@@ -129,11 +118,20 @@ def load_model(source):
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
     model = LSTM(config.model['input_size'], config.model['hidden_size'], tokens_length=config.model_input_len)
-    # model.load_state_dict(torch.load(source))
+    model.load_state_dict(torch.load(source))
     model.to(device)
     model.eval()
 
     return model
+
+
+def format_predictions(predictions, lines):
+    predictions_hard = [1 if x >= 0.5 else 0 for x in predictions]
+    lines = list(torch.cat(lines).cpu().numpy().astype(np.int32))
+    lines = list(map(int, lines))
+    output = dict(sorted(zip(lines, predictions_hard)))
+    return [output]
+
 
 def write_predictions(destination, predictions):
     """
@@ -151,13 +149,13 @@ if __name__ == "__main__":
     #                          "--destination shared_resources/predictions.json"))
     args = parser.parse_args()
     test_files = args.source
+    test_files = 'shared_resources/real_test_for_milestone3/real_consistent.json'
+    # test_files = 'shared_resources/real_test_for_milestone3/real_inconsistent.json'
 
     # load the serialized model
     model = load_model(args.model)
-    # predict incorrect location for each test example.
-    predictions_formatted = predict(model, test_files)
+    # make predictions
+    preds, lines = predict(model, test_files)
+    predictions_formatted = format_predictions(preds, lines)
     # write predictions to file
     write_predictions(args.destination, predictions_formatted)
-    # print(predictions)
-
-
