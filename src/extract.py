@@ -1,85 +1,10 @@
-from zipfile import ZipFile
 import json
+from zipfile import ZipFile
 
-import tqdm
 import libcst as cst
-from libcst.metadata.position_provider import PositionProvider
+import tqdm
 from libcst.metadata.parent_node_provider import ParentNodeProvider
-
-""" Unused - elif is an if + else """
-"""
-class FindElif(cst.CSTVisitor):
-    def __init__(self):
-        super().__init__()
-        self.ifs = []
-
-    def visit_Elif(self, node: cst.Elif):
-        try:
-            self.ifs.append(node)
-        except Exception as e:
-            print(e)
-"""
-
-"""
-class ChangeIf(cst.CSTTransformer):
-    # todo unused
-    def __init__(self):
-        super().__init__()
-        self.ifs = []
-        self.other_calls = []
-        self.prints_detailed = []
-        self.stack: List[Tuple[str, ...]] = []
-
-    def visit_If(self, node: cst.If):
-        try:
-            # node.body
-            # node.orelse
-            self.ifs.append(node)
-        except Exception as e:
-            print(e)
-
-    def leave_If(self, original_node: cst.If, updated_node: cst.If) -> cst.If:
-        new_conditional = cst.Not(cst.If.test)
-        new_node = updated_node.with_changes(test=new_conditional)
-        return new_node
-"""
-
-"""
-def get_raise_snippets(if_finder):
-    snippets = []
-
-    raise_finder = FindRaise()  # init only once
-
-    for i, if_i in enumerate(if_finder.ifs):
-        code_block = r(if_i)
-        # body_ = body
-        body = cst.MetadataWrapper(cst.parse_module(code_block))
-        body.visit(raise_finder)
-
-        # lines_whole = code_block.count('\n')
-        lines_true = r(if_i.body).count('\n')
-        # if len(raise_finder.raises) > 0:  # should loop through all found raises (in x-block?)
-
-        negative_test = cst.UnaryOperation(operator=cst.Not(), expression=if_i.test)
-        else_branch = False
-        for (line_i, raise_i) in zip(raise_finder.lines, raise_finder.raises):
-            if line_i > lines_true:
-                else_branch = True
-
-            test = negative_test if else_branch else if_i.test
-
-            snippets.append(
-                {
-                    "if": test,
-                    "raise": raise_i,
-                    "line_if": if_finder.current_line,
-                    "line_raise": line_i,
-                    "code": code_block,
-                    "active_if": if_finder.lines[-1]
-                })
-
-    return snippets
-"""
+from libcst.metadata.position_provider import PositionProvider
 
 
 def load_segments(archive='shared_resources/data.zip', file='functions_list.json'):

@@ -1,20 +1,19 @@
 #!/usr/bin/python3
 import json
 import os
-import sys
 import shlex
-
 import sys
 
 sys.path.extend(['/home/petrmiculek/Code/asdl'])
 
 import argparse
-import torch
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import tqdm
+import torch
 import torch.nn as nn
+import tqdm
 from sklearn.metrics import roc_curve
 
 parser = argparse.ArgumentParser()
@@ -26,11 +25,11 @@ parser.add_argument(
     '--destination', help="Path to output JSON file with predictions.", required=True)
 
 from src import config
-from src.extract import load_segments, extract_raises
-from src.preprocess import load_tokenizer
 from src.dataset import IfRaisesDataset, get_dataset_loaders
+from src.eval import accuracy, compute_metrics
+from src.extract import extract_raises, load_segments
 from src.model import LSTMBase as LSTM
-from src.eval import compute_metrics, accuracy
+from src.preprocess import load_tokenizer
 
 
 def predict(model, test_files):
@@ -60,7 +59,7 @@ def predict(model, test_files):
 
     predictions = torch.cat(predictions)
     predictions_hard = [1 if x >= 0.5 else 0 for x in predictions]
-    lines = list(torch.cat(lines).cpu().numpy())
+    lines = list(torch.cat(lines).cpu().numpy().astype(int))
     output = dict(sorted(zip(lines, predictions_hard)))
     all_outputs.append(output)
 
@@ -130,28 +129,11 @@ def load_model(source):
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
     model = LSTM(config.model['input_size'], config.model['hidden_size'], tokens_length=config.model_input_len)
-    model.load_state_dict(torch.load(source))
+    # model.load_state_dict(torch.load(source))
     model.to(device)
     model.eval()
 
     return model
-
-
-# def load_bert(source):
-#
-#     CODEBERTA_LANGUAGE_ID = "huggingface/CodeBERTa-language-id"
-#
-#     from transformers import RobertaTokenizer
-#     from transformers import RobertaForSequenceClassification
-#     tokenizer = RobertaTokenizer.from_pretrained(CODEBERTA_LANGUAGE_ID)
-#     model = RobertaForSequenceClassification.from_pretrained(CODEBERTA_LANGUAGE_ID)
-#
-#     input_ids = tokenizer.encode(CODE_TO_IDENTIFY)
-#     logits = model(input_ids)[0]
-#
-#     language_idx = logits.argmax()
-#     return language_idx
-#     # todo try
 
 def write_predictions(destination, predictions):
     """
@@ -173,9 +155,9 @@ if __name__ == "__main__":
     # load the serialized model
     model = load_model(args.model)
     # predict incorrect location for each test example.
-    predictions = predict(model, test_files)
+    predictions_formatted = predict(model, test_files)
     # write predictions to file
-    write_predictions(args.destination, predictions)
+    write_predictions(args.destination, predictions_formatted)
     # print(predictions)
 
-    from src.eval import roc_curve
+

@@ -98,13 +98,16 @@ def confusion_matrix(gts, predictions_hard, output_location=None, show=True, val
     plt.close(fig_cm.figure)
 
 
-def plot_roc_curve(gts, predictions, _, show=True, output_location=None):
+def plot_roc_curve(gts, predictions, show=True, output_location=None):
 
     fpr, tpr, thresholds = roc_curve(gts, predictions)
     roc_auc = auc(fpr, tpr)
-    display = RocCurveDisplay(fpr=fpr, tpr=tpr, roc_auc=roc_auc, estimator_name='example estimator')
+    display = RocCurveDisplay(fpr=fpr, tpr=tpr, roc_auc=roc_auc)
     display.plot()
-    if show:
-        plt.show()
-    if output_location is not None:
-        plt.savefig(join(output_location, 'roc_curve.svg'), bbox_inches='tight')
+    try:
+        if show:
+            plt.show()
+        if output_location is not None:
+            plt.savefig(join(output_location, 'roc_curve.svg'), bbox_inches='tight')
+    except Exception as e:
+        print('Failed plotting/saving ROC curve\n', e)

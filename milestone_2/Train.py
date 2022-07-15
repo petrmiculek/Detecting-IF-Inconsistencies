@@ -43,7 +43,8 @@ from src.preprocess import negate_cond, rebuild_cond, load_tokenizer
 from src.util import count_parameters, get_dict
 from src.dataset import IfRaisesDataset, get_dataset_loaders
 from src.model import LSTMBase
-from src.eval import compute_metrics, accuracy
+from src.eval import compute_metrics, accuracy, plot_roc_curve
+
 from src.model_util import EarlyStopping
 
 parser = argparse.ArgumentParser()
@@ -101,7 +102,7 @@ class ModelTraining:
         datasets = get_dataset_loaders(self.dataset_path, self.tokenizer,
                                        fraction=self.dataset_fraction,
                                        batch_size=self.batch_size, training_split=config.training_split,
-                                       workers=1
+                                       workers=4
                                        )
         self.train_dataset, self.val_dataset, self.test_dataset = datasets
 
@@ -159,6 +160,7 @@ class ModelTraining:
         self.real_dataset_cons, _, _ = get_dataset_loaders(cons, self.tokenizer, fraction=1., eval_mode=True)
         self.real_dataset_incons, _, _ = get_dataset_loaders(incons, self.tokenizer, fraction=1., eval_mode=True)
         self.real_test_preds = []
+        self.real_test_gts = []
 
     def init_model(self):
         # setting self-variables outside init for clarity and reusability
@@ -170,7 +172,6 @@ class ModelTraining:
         self.bce_loss = nn.BCEWithLogitsLoss()
 
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
-
 
     def pred_sample(self, sample):
         """
@@ -226,6 +227,10 @@ class ModelTraining:
         gts_cons = torch.zeros_like(preds_cons)
         gts_incons = torch.zeros_like(preds_cons) + 1.0
 
+        gts_all = torch.cat([gts_cons, gts_incons]).cpu()
+        preds_all = torch.cat([preds_cons, preds_incons]).cpu()
+        plot_roc_curve(gts_all, preds_all, show=False, output_location='results')
+
         accuracy_consistent = accuracy(gts_cons, preds_cons)['accuracy']
         accuracy_inconsistent = accuracy(gts_incons, preds_incons)['accuracy']
         print(f'Accuracy consistent: {accuracy_consistent:.4f}')
@@ -234,9 +239,9 @@ class ModelTraining:
         loss_cons = self.bce_loss(preds_cons, gts_cons).item()
         loss_incons = self.bce_loss(preds_incons, gts_incons).item()
         loss = 0.5 * (loss_cons + loss_incons)
-        print(f'Loss consistent: {loss_cons:.4f}')
-        print(f'Loss inconsistent: {loss_incons:.4f}')
-        print(f'Loss average: {loss:.4f}')
+        # print(f'Loss consistent: {loss_cons:.4f}')
+        # print(f'Loss inconsistent: {loss_incons:.4f}')
+        print(f'Loss: {loss:.4f}')
         self.model.test_mode = False
         return {'Accuracy Consistent Real Test': accuracy_consistent,
                 'Accuracy Inconsistent Real Test': accuracy_inconsistent,
@@ -298,7 +303,6 @@ class ModelTraining:
 
                         i += 1
 
-
                 self.model.eval()
 
                 with torch.no_grad():
@@ -324,6 +328,10 @@ class ModelTraining:
                 loss_validation = np.nanmean(epoch_validation_losses)
                 accu_train = accuracy(gts_train, predictions_train)['accuracy']
                 accu_valid = accuracy(gts_valid, predictions_valid)['accuracy']
+
+                print('\nReal Test Data Results')  # newline
+                epoch_real_test_results = self.eval_real_test()
+                wb.log(epoch_real_test_results, step=epoch)
 
                 res = {'Loss Training': loss_training,
                        'Loss Validation': loss_validation,
@@ -371,7 +379,7 @@ class ModelTraining:
         self.best_results = self.epochs_stats[self.early_stopping.best_epoch]
         for key, value in self.best_results.items():
             print(f'\t{key}: {value:.4f}')
-        
+
         # logging
         wb.log(self.best_results)
 
@@ -380,7 +388,7 @@ class ModelTraining:
         # evaluate on test set
         self.test_results = self.eval_test()
         wb.log(self.test_results)
-        
+
         # evaluate on real test data
         real_test_results = self.eval_real_test()
         wb.log(real_test_results)
@@ -443,7 +451,6 @@ class ModelTraining:
             print('Memory Usage:')
             print('Allocated:', round(torch.cuda.memory_allocated(0) / 1024 ** 3, 1), 'GB')
             print('Cached:   ', round(torch.cuda.memory_reserved(0) / 1024 ** 3, 1), 'GB')
-
 
 
 def balance(dataset):
